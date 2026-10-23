@@ -28,7 +28,7 @@ public final class WireCodec {
         exactFields(o, "v","type","seq","requestId","matchId","body");
         long seq = integer(o, "seq");
         long version = integer(o, "v");
-        if(version>Integer.MAX_VALUE || seq<1 || seq>9007199254740991L) throw new IllegalArgumentException("BAD_MESSAGE");
+        if(version<1 || version>Integer.MAX_VALUE || seq<1 || seq>9007199254740991L) throw new IllegalArgumentException("BAD_MESSAGE");
         if(!o.get("body").isJsonObject()) throw new IllegalArgumentException("BAD_MESSAGE");
         return new Message((int)version, string(o,"type"), seq, nullableString(o,"requestId"), nullableString(o,"matchId"),o.getAsJsonObject("body"));
     }
@@ -65,5 +65,5 @@ public final class WireCodec {
         if(e==null || !e.isJsonPrimitive() || !e.getAsJsonPrimitive().isBoolean()) throw new IllegalArgumentException("BAD_MESSAGE");
         return e.getAsBoolean();
     }
-    public <T> T body(Message m,Class<T> type) { return gson.fromJson(m.body,type); }
+    public <T> T body(Message m,Class<T> type) { BodyValidator.validate(m.body,type); return gson.fromJson(m.body,type); }
 }

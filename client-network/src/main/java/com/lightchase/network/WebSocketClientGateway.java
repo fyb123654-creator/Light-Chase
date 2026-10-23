@@ -13,6 +13,7 @@ public final class WebSocketClientGateway implements ClientGateway {
     private WebSocketClient socket;
     private ScheduledExecutorService clock;
     private GatewayListener listener;
+    private final ControlRequests requests=new ControlRequests(s -> listener.onControl(s));
     private ConnectionOptions options;
     private long seq, requestSeq, lastServerSeq, inputSeq, dropSeq;
     private long lastPacket, lastInput, lastHeartbeat, lastSend;
@@ -23,7 +24,7 @@ public final class WebSocketClientGateway implements ClientGateway {
 
     @Override public synchronized void connect(ConnectionOptions o,GatewayListener l) {
         if(socket!=null) { l.onError(new GatewayError("ALREADY_CONNECTED","Already connecting or connected",true,null)); return; }
-        listener=l; options=o;
+        listener=l; options=o; listener.onSession(null);
         if(o.host==null || !o.host.matches("[A-Za-z0-9.-]+") || o.port<1 || o.port>65535) {
             error("INVALID_ADDRESS","Enter an IPv4 address or DNS host and valid port",true,null); return;
         }
@@ -46,7 +47,7 @@ public final class WebSocketClientGateway implements ClientGateway {
                 synchronized(WebSocketClientGateway.this) {
                     if(socket!=this) return;
                     socket=null; stopClock(); running=false; frame=InputFrame.ZERO;
-                    state("CLOSED",reason);
+                    requests.cancel(); listener.onSession(null); state("CLOSED",reason);
                 }
             }
             @Override public void onError(Exception ex) {
@@ -63,6 +64,7 @@ public final class WebSocketClientGateway implements ClientGateway {
     private synchronized void pulse() {
         if(socket==null) return;
         long n=now();
+        if(requests.pulse(n)) { close(); return; }
         if(n-lastPacket>=5000) { error("CONNECTION_LOST","No server response for 5 seconds",true,null); close(); return; }
         if(!welcomed) return;
         if(n-lastPacket>=3000 && !suspect) { suspect=true; frame=InputFrame.ZERO; state("SUSPECT","No recent server packets"); }
@@ -84,6 +86,11 @@ public final class WebSocketClientGateway implements ClientGateway {
                        !options.configHash.equals(WireCodec.string(m.body,"configHash"))) {
                         error("CONFIG_MISMATCH","Server resource hashes differ",false,m.requestId); close(); return;
                     }
+                    if(welcomed) throw new IllegalArgumentException("DUPLICATE_WELCOME");
+                    WireCodec.exactFields(m.body,"sessionId","playerId","protocolVersion","mapHash","configHash","heartbeatMs","disconnectMs");
+                    if(WireCodec.integer(m.body,"protocolVersion")!=Protocol.VERSION || WireCodec.integer(m.body,"heartbeatMs")!=1000 || WireCodec.integer(m.body,"disconnectMs")!=5000) throw new IllegalArgumentException("INVALID_WELCOME");
+                    listener.onSession(new SessionInfo(WireCodec.string(m.body,"sessionId"),WireCodec.string(m.body,"playerId")));
+                    requests.complete(m.requestId,"HELLO",null);
                     welcomed=true; state("JOINING",null);
                     sendControl("JOIN_ROOM",map("roomId",options.roomId.trim().toUpperCase(Locale.ROOT)),null);
                     break;
@@ -102,10 +109,17 @@ public final class WebSocketClientGateway implements ClientGateway {
                         send("RESULT_ACK",null,matchId,map("resultId",resultId));
                     } break;
                 case "ERROR":
+                    WireCodec.exactFields(m.body,"code","message","fatal");
                     boolean fatal=WireCodec.bool(m.body,"fatal");
+                    requests.complete(m.requestId,null,WireCodec.string(m.body,"code"));
                     error(WireCodec.string(m.body,"code"),WireCodec.string(m.body,"message"),!fatal,m.requestId);
                     if(fatal) close(); break;
-                case "ACK": case "PONG": break;
+                case "ACK":
+                    WireCodec.exactFields(m.body,"action");
+                    requests.complete(m.requestId,WireCodec.string(m.body,"action"),null); break;
+                case "PONG":
+                    WireCodec.exactFields(m.body,"nonce","serverTimeMs");
+                    WireCodec.integer(m.body,"nonce");WireCodec.integer(m.body,"serverTimeMs");break;
                 default: error("BAD_MESSAGE","Unknown server message",false,null);close();
             }
         } catch(RuntimeException ex) { error("BAD_MESSAGE","Invalid server message",false,null); close(); }
@@ -118,18 +132,24 @@ public final class WebSocketClientGateway implements ClientGateway {
         if(running && !suspect && (edge || f.dropPressed)) sendInput(f.dropPressed?++dropSeq:null);
     }
     private void sendInput(Long dropId) { send("INPUT",null,matchId,map("inputSeq",++inputSeq,"moveX",frame.moveX,"moveY",frame.moveY,"interactHeld",frame.interactHeld,"dropId",dropId)); }
-    public synchronized void returnToLobby() { if(resultId!=null) sendControl("RETURN_LOBBY",map("resultId",resultId),matchId); }
+    public synchronized void returnToLobby() { sendControl("RETURN_LOBBY",map("resultId",resultId),matchId); }
     public synchronized void leaveRoom() { sendControl("LEAVE_ROOM",map("reason","QUIT"),null); }
     public synchronized void background() { frame=InputFrame.ZERO;sendControl("LEAVE_ROOM",map("reason","BACKGROUND"),null); close(); }
     public synchronized void close() {
         WebSocketClient old=socket;socket=null;running=false;frame=InputFrame.ZERO;
         stopClock();if(old!=null) old.close();
-        if(listener!=null) state("CLOSED","Closed locally");
+        if(listener!=null) { requests.cancel(); listener.onSession(null); state("CLOSED","Closed locally"); }
     }
     private void stopClock() { if(clock!=null) { clock.shutdownNow();clock=null; } }
     private void state(String s,String reason) { listener.onConnection(new ConnectionStatus(s,reason)); }
     private void error(String code,String msg,boolean retry,String request) { if(listener!=null) listener.onError(new GatewayError(code,msg,retry,request)); }
-    private void sendControl(String type,Object body,String match) { send(type,"r-"+(++requestSeq),match,body); }
+    private void sendControl(String type,Object body,String match) {
+        if(listener==null)return;
+        String id="r-"+(++requestSeq);
+        requests.begin(id,type,now());
+        if(socket==null||!socket.isOpen()) {requests.complete(id,type,"NOT_CONNECTED");error("NOT_CONNECTED","Socket is not open",true,id);return;}
+        send(type,id,match,body);
+    }
     private void send(String type,String request,String match,Object body) {
         if(socket==null || !socket.isOpen()) { error("NOT_CONNECTED","Socket is not open",true,request);return; }
         socket.send(codec.encode(type,++seq,request,match,body));

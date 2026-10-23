@@ -14,8 +14,13 @@ public class LobbyIntegrationTest {
     private static final class Listener implements GatewayListener {
         final BlockingQueue<RoomState> rooms=new LinkedBlockingQueue<>();
         final BlockingQueue<GatewayError> errors=new LinkedBlockingQueue<>();
+        volatile SessionInfo session;
+        final BlockingQueue<ControlStatus> controls=new LinkedBlockingQueue<>();
+        volatile boolean roomBeforeIdentity;
+        public void onSession(SessionInfo session) {this.session=session;}
+        public void onControl(ControlStatus status) {controls.add(status);}
         public void onConnection(ConnectionStatus s){}
-        public void onRoom(RoomState s){rooms.add(s);}
+        public void onRoom(RoomState s){if(session==null)roomBeforeIdentity=true;rooms.add(s);}
         public void onView(PlayerView s){fail("S0 must not pretend to run a match");}
         public void onResult(MatchResult s){fail("S0 must not fabricate a result");}
         public void onError(GatewayError e){errors.add(e);}
@@ -58,5 +63,21 @@ public class LobbyIntegrationTest {
     @Test public void mismatchedMapRejectedBeforeRoomJoin() throws Exception {
         Listener a=new Listener();connect(a,"wrong-hash");
         GatewayError e=awaitError(a,"MAP_MISMATCH");assertFalse(e.recoverable);assertTrue(a.rooms.isEmpty());
+    }
+    @Test public void identityPrecedesRoomAndControlResultsReachUi() throws Exception {
+        Listener l=new Listener();WebSocketClientGateway client=connect(l,data.mapHash);
+        RoomState room=awaitRoom(l,1,false);
+        assertFalse(l.roomBeforeIdentity);assertNotNull(l.session);
+        assertEquals(l.session.playerId,room.players.get(0).playerId);
+        client.selectRole(Role.POLICE);awaitRoom(l,1,true);
+        client.setReady(true);awaitError(l,"INVALID_PHASE");
+        boolean pending=false,success=false,failed=false;
+        for(ControlStatus c:l.controls){
+            if(c.action.equals("SELECT_ROLE")&&c.state==ControlStatus.State.PENDING)pending=true;
+            if(c.action.equals("SELECT_ROLE")&&c.state==ControlStatus.State.SUCCEEDED)success=true;
+            if(c.action.equals("SET_READY")&&c.state==ControlStatus.State.FAILED&&"INVALID_PHASE".equals(c.errorCode))failed=true;
+        }
+        assertTrue(pending);assertTrue(success);assertTrue(failed);
+        client.close();assertNull(l.session);
     }
 }

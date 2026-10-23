@@ -5,9 +5,11 @@ import org.junit.Test;
 import static org.junit.Assert.*;
 public class FakeGatewayTest {
     private static class Listener implements GatewayListener {
-        PlayerView view;String state;
+        PlayerView view;String state;SessionInfo session;ControlStatus control;
+        public void onSession(SessionInfo session) {this.session=session;}
+        public void onControl(ControlStatus status) {control=status;}
         public void onConnection(ConnectionStatus s){state=s.state;}
-        public void onRoom(RoomState s){}
+        public void onRoom(RoomState s){assertNotNull(session);assertEquals(session.playerId,s.players.get(0).playerId);}
         public void onView(PlayerView s){view=s;}
         public void onResult(MatchResult s){}
         public void onError(GatewayError e){fail(e.message);}
@@ -18,6 +20,7 @@ public class FakeGatewayTest {
         g.setReady(true);g.submitInput(new InputFrame(1,0,true,true));g.advance(.1f);
         double x=l.view.self.x;
         g.background();g.advance(1);
+        assertNull(l.session);assertEquals(ControlStatus.State.SUCCEEDED,l.control.state);
         assertEquals("CLOSED",l.state);assertEquals(0,g.lastInput().moveX,0);assertFalse(g.lastInput().interactHeld);
         assertEquals(x,l.view.self.x,0);
     }

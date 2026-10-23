@@ -14,7 +14,9 @@ public final class ProbeMain {
         WebSocketClientGateway client=new WebSocketClientGateway();
         try {
             client.connect(new ConnectionOptions(host,port,"PROBE","s0-probe",d.mapHash,d.configHash),new GatewayListener(){
-                public void onConnection(ConnectionStatus s){System.out.println("Connection: "+s.state);}
+                public void onSession(SessionInfo session) {}
+        public void onControl(ControlStatus status) {}
+        public void onConnection(ConnectionStatus s){System.out.println("Connection: "+s.state);}
                 public void onRoom(RoomState r){System.out.println("PASS: joined "+r.roomId+" ("+r.players.size()+" player(s)); protocol and resource hashes agree.");done.countDown();}
                 public void onView(PlayerView v){}
                 public void onResult(MatchResult r){}

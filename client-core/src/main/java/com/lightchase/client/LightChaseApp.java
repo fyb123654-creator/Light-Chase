@@ -24,6 +24,7 @@ public final class LightChaseApp extends ApplicationAdapter {
     private DataFiles data;
     private PlayerView view;
     private Role selectedRole=Role.THIEF;
+    private SessionInfo session;
     private boolean running,interact,dropPulse;
     private String connection="OFFLINE",notice="Choose role, then START DEMO";
     private int joystickPointer=-1,interactPointer=-1;
@@ -66,7 +67,9 @@ public final class LightChaseApp extends ApplicationAdapter {
     }
     private void connectFixture() {
         gateway.connect(new ConnectionOptions("offline",8080,"DEMO","s0",data.mapHash,data.configHash),new GatewayListener(){
-            public void onConnection(ConnectionStatus s){callbacks.add(()->{connection=s.state;if("CLOSED".equals(s.state)){running=false;view=null;clearInput();}});}
+            public void onSession(SessionInfo s) { callbacks.add(() -> session=s); }
+        public void onControl(ControlStatus s) { callbacks.add(() -> notice=s.action+": "+s.state); }
+        public void onConnection(ConnectionStatus s){callbacks.add(()->{connection=s.state;if("CLOSED".equals(s.state)){running=false;view=null;clearInput();}});}
             public void onRoom(RoomState r){callbacks.add(()->{running=r.phase==RoomPhase.RUNNING;if(!running){view=null;clearInput();}});}
             public void onView(PlayerView v){callbacks.add(()->view=v);}
             public void onResult(MatchResult r){callbacks.add(()->{running=false;clearInput();notice="Result: "+r.reason;});}

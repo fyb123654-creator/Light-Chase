@@ -12,17 +12,18 @@ public final class FakeGateway implements ClientGateway {
     private boolean connected,running;
     private InputFrame input=InputFrame.ZERO;
     private double x,y,elapsed;
-    private long tick,revision;
+    private long tick,revision,requestSeq;
     public void configure(DataFiles data) { this.data=data; }
     public InputFrame lastInput() { return input; }
     public void connect(ConnectionOptions options,GatewayListener listener) {
         if(data==null) throw new IllegalStateException("Configure fixture data first");
         this.listener=listener;connected=true;running=false;input=InputFrame.ZERO;
+        listener.onSession(new SessionInfo("offline-session","demo-self"));
         listener.onConnection(new ConnectionStatus("CONNECTED","OFFLINE FIXTURE"));
         room(RoomPhase.LOBBY);
     }
-    public void selectRole(Role role) { if(!connected||running)return;this.role=role;room(RoomPhase.LOBBY); }
-    public void setReady(boolean ready) {
+    private void doselectRole(Role role) { if(!connected||running)return;this.role=role;room(RoomPhase.LOBBY); }
+    private void dosetReady(boolean ready) {
         if(!connected)return;
         if(!ready) { running=false;input=InputFrame.ZERO;room(RoomPhase.LOBBY);return; }
         SpawnPose p=data.map.spawns.get(role);x=p.x;y=p.y;elapsed=0;tick=0;input=InputFrame.ZERO;running=true;
@@ -48,11 +49,43 @@ public final class FakeGateway implements ClientGateway {
         listener.onRoom(new RoomState("DEMO",++revision,phase,data.map.mapId,data.mapHash,data.configHash,running?"offline-demo":null,0,
             Collections.singletonList(new RoomPlayer("demo-self",role,false,"CONNECTED",false))));
     }
-    public void returnToLobby() { if(!connected)return;running=false;input=InputFrame.ZERO;room(RoomPhase.LOBBY); }
-    public void leaveRoom() { close(); }
-    public void background() { close(); }
+    private void doreturnToLobby() { if(!connected)return;running=false;input=InputFrame.ZERO;room(RoomPhase.LOBBY); }
+    public void leaveRoom() { leaveFixture(); }
+    public void background() { leaveFixture(); }
     public void close() {
         connected=running=false;input=InputFrame.ZERO;
+        if(listener!=null)listener.onSession(null);
         if(listener!=null)listener.onConnection(new ConnectionStatus("CLOSED","Offline fixture closed"));
+    }
+    public void selectRole(Role role) {
+        if(listener==null)return;
+        String id="fake-"+(++requestSeq);
+        listener.onControl(new ControlStatus(id,"SELECT_ROLE",ControlStatus.State.PENDING,null));
+        if(!connected){listener.onControl(new ControlStatus(id,"SELECT_ROLE",ControlStatus.State.FAILED,"NOT_CONNECTED"));return;}
+        doselectRole(role);
+        listener.onControl(new ControlStatus(id,"SELECT_ROLE",ControlStatus.State.SUCCEEDED,null));
+    }
+    public void setReady(boolean ready) {
+        if(listener==null)return;
+        String id="fake-"+(++requestSeq);
+        listener.onControl(new ControlStatus(id,"SET_READY",ControlStatus.State.PENDING,null));
+        if(!connected){listener.onControl(new ControlStatus(id,"SET_READY",ControlStatus.State.FAILED,"NOT_CONNECTED"));return;}
+        dosetReady(ready);
+        listener.onControl(new ControlStatus(id,"SET_READY",ControlStatus.State.SUCCEEDED,null));
+    }
+    public void returnToLobby() {
+        if(listener==null)return;
+        String id="fake-"+(++requestSeq);
+        listener.onControl(new ControlStatus(id,"RETURN_LOBBY",ControlStatus.State.PENDING,null));
+        if(!connected){listener.onControl(new ControlStatus(id,"RETURN_LOBBY",ControlStatus.State.FAILED,"NOT_CONNECTED"));return;}
+        doreturnToLobby();
+        listener.onControl(new ControlStatus(id,"RETURN_LOBBY",ControlStatus.State.SUCCEEDED,null));
+    }
+    private void leaveFixture() {
+        if(listener==null){close();return;}
+        String id="fake-"+(++requestSeq);
+        listener.onControl(new ControlStatus(id,"LEAVE_ROOM",ControlStatus.State.PENDING,null));
+        listener.onControl(new ControlStatus(id,"LEAVE_ROOM",connected?ControlStatus.State.SUCCEEDED:ControlStatus.State.FAILED,connected?null:"NOT_CONNECTED"));
+        close();
     }
 }

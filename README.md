@@ -65,3 +65,6 @@ Android Studio 选择 android 运行配置和 API 37 模拟器，点击 Run。�
 已经实际依赖 libGDX、Java-WebSocket、Gson 等，见 [第三方声明](THIRD_PARTY_NOTICES.md) 和 [复用登记表](docs/development/07_开源复用登记表.md)。Fugitive 仍是参考候选，未复制或移植其源码。第三方许可证不等于本项目原创代码的许可证；团队尚未选择原创代码的开源许可。
 
 [docs/outline/](docs/outline/) 中的课程概述 PDF、PPT 与调研报告保留用于追溯，冲突时以当前已确认需求为准。
+
+
+协作基线更新（2026-10-23，契约 R2）：开始独立开发前必须阅读接口契约第 12 节。GatewayListener 新增 onSession/onControl；A 按单步输入验收表实现规则，B 维护身份/控制请求和消息校验，C 将回调入队并按控制终态恢复按钮。共享变更应先合入共同基线，三人逐个可运行功能集成，不等所有模块写完才合并。当前仍是骨架，完整对局未实现。
