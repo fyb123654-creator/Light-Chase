@@ -43,7 +43,7 @@ Android Studio 选择 android 运行配置和 API 37 模拟器，点击 Run。�
 - 规则移动原型：固定步、归一化移动、墙体碰撞、超时与中断；未接入联网对局。
 - 真实网络大厅：握手、资源哈希、两人房间、角色互斥、心跳与退出；准备开始明确返回未实现。
 - Android 离线演示：地图、角色切换、摇杆、交互/丢弃按钮采样、生命周期清理；无完整玩法判定。
-- 23 项自动化测试（含 5 项共享几何测试）及 API 37 模拟器运行记录，见 [验证记录](docs/verification/2026-10-23_S0.md)。
+- 56 项自动化测试（checkJvm 覆盖 contracts、game-data、game-core、server、client-network、client-core）；A1 新增 25 项地图/规则数据校验与可达性测试，见 [A1 验证记录](docs/verification/2026-10-24_A-rules.md)；S0 的 API 37 模拟器运行记录见 [S0 验证记录](docs/verification/2026-10-23_S0.md)。
 
 当前没有完整追捕/物资/撤离/结算流程，也未完成双 Android 联调和真机验收。测试地图不能当作已完成的正式关卡。
 
