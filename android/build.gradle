@@ -44,6 +44,7 @@ tasks.named('preBuild').configure { dependsOn 'extractNatives' }
 
 tasks.register('copyThirdPartyNotices', Sync) {
     from(rootProject.file('third-party'))
+    from(rootProject.file('THIRD_PARTY_NOTICES.md'))
     into(layout.buildDirectory.dir('generated/notices/third-party'))
 }
 tasks.named('preBuild').configure { dependsOn 'copyThirdPartyNotices' }
