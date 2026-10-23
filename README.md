@@ -6,7 +6,7 @@ Java + libGDX 的 Android 双人非对称追捕游戏。目标是两台客户端
 
 ## 三人从这里开始
 
-先读 [骨架运行与交接](docs/development/08_骨架运行与交接.md)，再读 [接口契约](docs/development/02_接口契约.md)。完整文档入口见 [开发文档](docs/development/README.md)。
+先读 [骨架运行与交接](docs/development/08_骨架运行与交接.md)，再读 [接口契约](docs/development/02_接口契约.md)。完整文档入口见 [docs/ 文档总目录](docs/README.md)。
 
 | 成员 | 主要目录 | 首个任务 |
 |---|---|---|
@@ -46,8 +46,21 @@ Android Studio 选择 android 运行配置和 API 37 模拟器，点击 Run。�
 
 当前没有完整追捕/物资/撤离/结算流程，也未完成双 Android 联调和真机验收。测试地图不能当作已完成的正式关卡。
 
+## 仓库结构：代码与资料分开
+
+根目录只放工程本身：Gradle 配置、七个模块，以及会被打进产物的 `THIRD_PARTY_NOTICES.md` 与 `third-party/` 许可证。所有需求、设计与过程资料集中在 [docs/](docs/README.md)：
+
+| 目录 | 内容 |
+|---|---|
+| [docs/requirements/](docs/requirements/README.md) | 当前范围、V1 玩法需求、跨版本扩展约定、原始需求快照 |
+| [docs/development/](docs/development/README.md) | 分工与开发设计、接口契约、联调验收、决策表、任务书、开源方案 |
+| [docs/verification/](docs/verification/) | 各阶段构建、测试与设备验证记录 |
+| [docs/outline/](docs/outline/) | 课程 Outline 的 PDF、PPT 与中文调研报告 |
+
+教师课件、参考应用二进制等第三方材料不纳入仓库，留在本地课程资料目录。
+
 ## 开源使用
 
 已经实际依赖 libGDX、Java-WebSocket、Gson 等，见 [第三方声明](THIRD_PARTY_NOTICES.md) 和 [复用登记表](docs/development/07_开源复用登记表.md)。Fugitive 仍是参考候选，未复制或移植其源码。第三方许可证不等于本项目原创代码的许可证；团队尚未选择原创代码的开源许可。
 
-原仓库中的课程概述 PDF 与 PPT 保留用于历史参考，冲突时以当前已确认需求为准。
+[docs/outline/](docs/outline/) 中的课程概述 PDF、PPT 与调研报告保留用于追溯，冲突时以当前已确认需求为准。
