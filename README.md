@@ -20,10 +20,11 @@ contracts 和地图/规则文件需要三人协调变更。客户端只发送操
 
 将仓库克隆到完整路径不含中文的位置，例如 C:\dev\Light-Chase。安装 JDK 21、Android Studio、Android SDK Platform 37 和 Build Tools 36.0.0；在 Android Studio 打开项目根目录并选择 JDK 21 作为 Gradle JDK。Java 源码编译目标为 17。
 
+只跑 JVM 模块（contracts、game-core、server、client-network、client-core）不需要 Android SDK，`.\gradlew.bat checkJvm` 直接可用。构建 `:android:` 才需要 SDK：Android Studio 会自动写 `local.properties`；用纯命令行时设置环境变量，例如 `$env:ANDROID_HOME="C:\Users\<你>\AppData\Local\Android\Sdk"`。
+
 ```powershell
 git clone https://github.com/fyb123654-creator/Light-Chase.git C:\dev\Light-Chase
 cd C:\dev\Light-Chase
-git switch codex/bootstrap
 .\gradlew.bat checkJvm :android:assembleDebug :server:installDist
 .\gradlew.bat :server:run
 ```
