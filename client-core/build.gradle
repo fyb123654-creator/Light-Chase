@@ -1,0 +1,2 @@
+plugins { id 'java-library' }
+dependencies { api project(':contracts'); implementation project(':game-data'); api 'com.badlogicgames.gdx:gdx:1.14.2' }

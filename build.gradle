@@ -1,0 +1,13 @@
+plugins { id 'com.android.application' version '9.4.1' apply false }
+allprojects { group = 'com.lightchase'; version = '0.1.0-SNAPSHOT' }
+subprojects {
+    plugins.withId('java') {
+        java { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
+        tasks.withType(JavaCompile).configureEach { options.encoding = 'UTF-8'; options.release = 17 }
+        dependencies { testImplementation 'junit:junit:4.13.2' }
+        tasks.withType(Test).configureEach { useJUnit(); testLogging { events 'failed', 'skipped' } }
+    }
+}
+tasks.register('checkJvm') {
+    dependsOn ':contracts:test', ':game-core:test', ':server:test', ':client-network:test', ':client-core:test'
+}

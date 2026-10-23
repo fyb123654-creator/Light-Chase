@@ -1,0 +1,17 @@
+{
+  "speed": 3,
+  "viewHeight": 8,
+  "viewAspect": 1.7777777777777777,
+  "beamRange": 4,
+  "beamAngleDeg": 60,
+  "markTicks": 24,
+  "invisibleTicks": 45,
+  "immuneTicks": 30,
+  "interactRange": 0.8,
+  "interactTicks": 30,
+  "maxMarks": 3,
+  "durationTicks": 5400,
+  "tickRate": 30,
+  "countdownTicks": 90,
+  "radius": 0.25
+}

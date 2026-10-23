@@ -1,0 +1,25 @@
+plugins { id 'application' }
+dependencies {
+    implementation project(':contracts')
+    implementation project(':game-core')
+    implementation project(':game-data')
+    implementation project(':client-network')
+    implementation 'org.java-websocket:Java-WebSocket:1.6.0'
+    implementation 'com.google.code.gson:gson:2.11.0'
+    runtimeOnly 'org.slf4j:slf4j-simple:2.0.16'
+    testImplementation project(':client-network')
+}
+application { mainClass = 'com.lightchase.server.ServerMain' }
+tasks.register('probe', JavaExec) {
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.lightchase.server.ProbeMain'
+}
+
+distributions {
+    main {
+        contents {
+            from(rootProject.file('THIRD_PARTY_NOTICES.md'))
+            into('third-party') { from(rootProject.file('third-party')) }
+        }
+    }
+}

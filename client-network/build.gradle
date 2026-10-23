@@ -1,0 +1,6 @@
+plugins { id 'java-library' }
+dependencies {
+    api project(':contracts')
+    implementation 'org.java-websocket:Java-WebSocket:1.6.0'
+    implementation 'com.google.code.gson:gson:2.11.0'
+}

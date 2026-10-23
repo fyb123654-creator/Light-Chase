@@ -1,0 +1,49 @@
+plugins { id 'com.android.application' }
+android {
+    namespace 'com.lightchase.android'
+    compileSdk 37
+    buildToolsVersion '36.0.0'
+    defaultConfig {
+        applicationId 'com.lightchase.game'
+        minSdk 26
+        targetSdk 37
+        versionCode 1
+        versionName '0.1.0-skeleton'
+    }
+    compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
+    sourceSets.main {
+        assets.srcDirs = ['../game-data/src/main/resources', layout.buildDirectory.dir('generated/notices').get().asFile]
+        jniLibs.srcDirs = [layout.buildDirectory.dir('generated/natives').get().asFile]
+    }
+    packaging { jniLibs { useLegacyPackaging = false } }
+}
+configurations { natives }
+dependencies {
+    implementation project(':client-core')
+    implementation project(':client-network')
+    implementation 'com.badlogicgames.gdx:gdx-backend-android:1.14.2'
+    natives 'com.badlogicgames.gdx:gdx-platform:1.14.2:natives-arm64-v8a'
+    natives 'com.badlogicgames.gdx:gdx-platform:1.14.2:natives-x86_64'
+}
+tasks.register('extractNatives') {
+    inputs.files configurations.natives
+    outputs.dir layout.buildDirectory.dir('generated/natives')
+    doLast {
+        configurations.natives.files.each { jar ->
+            def abi = jar.name.contains('arm64-v8a') ? 'arm64-v8a' : 'x86_64'
+            copy {
+                from zipTree(jar)
+                include '*.so'
+                into layout.buildDirectory.dir("generated/natives/${abi}")
+            }
+        }
+    }
+}
+tasks.named('preBuild').configure { dependsOn 'extractNatives' }
+
+
+tasks.register('copyThirdPartyNotices', Sync) {
+    from(rootProject.file('third-party'))
+    into(layout.buildDirectory.dir('generated/notices/third-party'))
+}
+tasks.named('preBuild').configure { dependsOn 'copyThirdPartyNotices' }

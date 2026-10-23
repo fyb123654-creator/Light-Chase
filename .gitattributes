@@ -1,0 +1,15 @@
+* text=auto
+*.java text eol=lf
+*.gradle text eol=lf
+*.md text eol=lf whitespace=-blank-at-eol
+*.json text eol=lf
+*.xml text eol=lf
+*.properties text eol=lf
+gradlew text eol=lf
+gradlew.bat text eol=crlf
+*.jar binary
+*.pdf binary
+*.pptx binary
+*.png binary
+# Preserve verbatim third-party license formatting.
+third-party/licenses/* -whitespace
