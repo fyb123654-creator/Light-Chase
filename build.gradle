@@ -9,5 +9,5 @@ subprojects {
     }
 }
 tasks.register('checkJvm') {
-    dependsOn ':contracts:test', ':game-core:test', ':server:test', ':client-network:test', ':client-core:test'
+    dependsOn ':contracts:test', ':game-data:test', ':game-core:test', ':server:test', ':client-network:test', ':client-core:test'
 }

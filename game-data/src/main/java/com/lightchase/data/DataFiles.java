@@ -1,24 +1,38 @@
 package com.lightchase.data;
 import com.google.gson.Gson;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParseException;
 import com.lightchase.contracts.*;
 import java.io.*;
-import java.nio.charset.StandardCharsets;
 import java.security.*;
 public final class DataFiles {
  public final MapDefinition map;
  public final RuleConfig rules;
  public final String mapHash, configHash;
  private DataFiles(byte[] mapBytes, byte[] configBytes) {
+  JsonObject mapJson=StrictJson.parseObject(mapBytes,"map");
+  JsonObject rulesJson=StrictJson.parseObject(configBytes,"rules");
+  GameDataValidator.validateShape(mapJson,rulesJson);
   Gson gson=new Gson();
-  map=gson.fromJson(new String(mapBytes,StandardCharsets.UTF_8),MapDefinition.class);
-  rules=gson.fromJson(new String(configBytes,StandardCharsets.UTF_8),RuleConfig.class);
-  if(map==null || rules==null || map.spawns==null || map.walls==null || map.width<1 || rules.tickRate!=30)
-   throw new IllegalArgumentException("Invalid skeleton data");
+  MapDefinition parsedMap;
+  RuleConfig parsedRules;
+  try {
+   parsedMap=gson.fromJson(mapJson,MapDefinition.class);
+   parsedRules=gson.fromJson(rulesJson,RuleConfig.class);
+  } catch (JsonParseException e) {
+   throw new IllegalArgumentException("map/rules: could not read structure: "+e.getMessage(),e);
+  }
+  map=parsedMap; rules=parsedRules;
+  GameDataValidator.validate(map,rules);
   mapHash=hash(mapBytes); configHash=hash(configBytes);
  }
  public static DataFiles read(byte[] mapBytes, byte[] configBytes) { return new DataFiles(mapBytes,configBytes); }
  public static DataFiles bundled() {
   return read(resource("/maps/test-room.json"),resource("/rules/v1.json"));
+ }
+ /** Formal 24x18 map. Switch server/client together during the A6/B/C handoff. */
+ public static DataFiles bundledFormal() {
+  return read(resource("/maps/v1.json"),resource("/rules/v1.json"));
  }
  private static byte[] resource(String path) {
   try(InputStream in=DataFiles.class.getResourceAsStream(path)) {
