@@ -291,6 +291,11 @@ final class GameDataValidator {
                 throw new IllegalArgumentException("map.materials: " + material.id + " points to unknown delivery "
                         + material.deliveryId);
             }
+            String expectedDelivery = "D" + material.id.substring(1);
+            if (!expectedDelivery.equals(material.deliveryId)) {
+                throw new IllegalArgumentException("map.materials: " + material.id
+                        + " must bind to " + expectedDelivery + ", got " + material.deliveryId);
+            }
             if (materialByDelivery.put(material.deliveryId, material.id) != null) {
                 throw new IllegalArgumentException("map.deliveries: " + material.deliveryId
                         + " is bound to more than one material");

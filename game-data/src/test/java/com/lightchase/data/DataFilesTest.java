@@ -218,4 +218,43 @@ public class DataFilesTest {
                 () -> DataFiles.read(null, configBytes()));
         assertTrue(exception.getMessage().contains("missing bytes"));
     }
+
+    @Test public void swappedDeliveryBindingsRejected() {
+        JsonObject map=mapJson();
+        map.getAsJsonArray("materials").get(0).getAsJsonObject().addProperty("deliveryId","D2");
+        map.getAsJsonArray("materials").get(1).getAsJsonObject().addProperty("deliveryId","D1");
+        assertTrue(error(map,configJson()).contains("must bind to"));
+    }
+    @Test public void duplicateJsonKeyRejectedBeforeMapping() {
+        String json=new String(mapBytes(),StandardCharsets.UTF_8);
+        json=json.replaceFirst("\\{","{\"mapId\":\"overwritten\",");
+        final byte[] bytes=json.getBytes(StandardCharsets.UTF_8);
+        assertThrows(IllegalArgumentException.class,()->DataFiles.read(bytes,configBytes()));
+    }
+    @Test public void nestedDuplicateKeyRejected() {
+        assertThrows(IllegalArgumentException.class,()->StrictJson.parseObject(
+                "{\"nested\":{\"x\":1,\"x\":2}}".getBytes(StandardCharsets.UTF_8),"map"));
+    }
+    @Test public void nonStandardJsonRejected() {
+        for(String text:new String[]{"{unquoted:1}","{\"x\":1/*comment*/}","{\"x\":NaN}","{} {}"}) {
+            assertThrows(text,IllegalArgumentException.class,()->StrictJson.parseObject(text.getBytes(StandardCharsets.UTF_8),"map"));
+        }
+    }
+    @Test public void invalidUtf8Rejected() {
+        byte[] bytes=new byte[]{'{','"','x','"',':','"',(byte)0xc3,0x28,'"','}'};
+        assertThrows(IllegalArgumentException.class,()->StrictJson.parseObject(bytes,"map"));
+    }
+    @Test public void validUtf8AndNestedJsonRetained() {
+        JsonObject parsed=StrictJson.parseObject("{\"name\":\"地图\",\"nested\":[true,null,1.5]}".getBytes(StandardCharsets.UTF_8),"map");
+        assertEquals("地图",parsed.get("name").getAsString());
+        assertEquals(3,parsed.getAsJsonArray("nested").size());
+    }
+    @Test public void excessiveNestingRejected() {
+        StringBuilder json=new StringBuilder();
+        for(int i=0;i<70;i++) json.append("{\"a\":");
+        json.append("1");
+        for(int i=0;i<70;i++) json.append('}');
+        assertThrows(IllegalArgumentException.class,()->StrictJson.parseObject(
+                json.toString().getBytes(StandardCharsets.UTF_8),"map"));
+    }
 }
