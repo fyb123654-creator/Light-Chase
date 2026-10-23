@@ -33,7 +33,6 @@ final class GameDataValidator {
             new LinkedHashSet<>(Arrays.asList("E1", "E2"));
     private static final Set<Role> ROLES =
             new LinkedHashSet<>(Arrays.asList(Role.POLICE, Role.THIEF));
-    private static final double EPS = 1e-9;
 
     private GameDataValidator() {
     }
@@ -315,14 +314,20 @@ final class GameDataValidator {
         for (MapPoint exit : map.exits) {
             points.add(new NamedPoint("exit " + exit.id, exit.x, exit.y));
         }
-        for (int i = 0; i < points.size(); i++) {
-            for (int j = i + 1; j < points.size(); j++) {
-                NamedPoint first = points.get(i);
-                NamedPoint second = points.get(j);
-                if (Math.abs(first.x - second.x) <= EPS && Math.abs(first.y - second.y) <= EPS) {
-                    throw new IllegalArgumentException("map: " + first.name + " and " + second.name
-                            + " overlap at (" + first.x + "," + first.y + ")");
-                }
+        for (Role role : ROLES) {
+            SpawnPose spawn = map.spawns.get(role);
+            points.add(new NamedPoint("spawn " + role, spawn.x, spawn.y));
+        }
+        // Fixed points must occupy distinct cells. Different coordinates that floor to
+        // the same cell are not distinguishable on the client and can overlap actions.
+        Set<Long> occupiedCells = new HashSet<>();
+        for (NamedPoint point : points) {
+            int col = (int) Math.floor(point.x);
+            int row = (int) Math.floor(point.y);
+            long cell = MapTopology.key(col, row);
+            if (!occupiedCells.add(cell)) {
+                throw new IllegalArgumentException("map: " + point.name
+                        + " shares cell (" + col + "," + row + ") with another fixed point");
             }
         }
 

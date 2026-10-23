@@ -30,6 +30,10 @@ public final class DataFiles {
  public static DataFiles bundled() {
   return read(resource("/maps/test-room.json"),resource("/rules/v1.json"));
  }
+ /** Formal 24x18 map. Switch server/client together during the A6/B/C handoff. */
+ public static DataFiles bundledFormal() {
+  return read(resource("/maps/v1.json"),resource("/rules/v1.json"));
+ }
  private static byte[] resource(String path) {
   try(InputStream in=DataFiles.class.getResourceAsStream(path)) {
    if(in==null) throw new IllegalStateException("Missing resource: "+path);

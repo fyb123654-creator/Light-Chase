@@ -257,4 +257,18 @@ public class DataFilesTest {
         assertThrows(IllegalArgumentException.class,()->StrictJson.parseObject(
                 json.toString().getBytes(StandardCharsets.UTF_8),"map"));
     }
+    @Test public void spawnSharingTaskCellRejected() {
+        JsonObject map=mapJson();
+        JsonObject police=map.getAsJsonObject("spawns").getAsJsonObject("POLICE");
+        police.addProperty("x",4.6);
+        police.addProperty("y",3.5);
+        assertTrue(error(map,configJson()).contains("shares cell"));
+    }
+    @Test public void sameCellTaskPointsRejected() {
+        JsonObject map=mapJson();
+        JsonObject material=map.getAsJsonArray("materials").get(1).getAsJsonObject();
+        material.addProperty("x",4.9);
+        material.addProperty("y",3.4);
+        assertTrue(error(map,configJson()).contains("shares cell"));
+    }
 }
