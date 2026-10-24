@@ -85,6 +85,13 @@ final class WorldRenderer {
                 shapes.circle((float) interpolator.opponentX(), (float) interpolator.opponentY(), 0.40f, 24);
                 shapes.setColor(Color.RED);
                 shapes.circle((float) interpolator.opponentX(), (float) interpolator.opponentY(), 0.25f, 24);
+                if (interpolator.opponentCarrying()) {
+                    // Contract §7: carrying is the only carry-related fact the police gets, and it is
+                    // meant for the appearance only. No coordinates of the material.
+                    shapes.setColor(Color.GOLD);
+                    shapes.circle((float) interpolator.opponentX() + 0.30f,
+                            (float) interpolator.opponentY() + 0.30f, 0.10f, 12);
+                }
             }
             shapes.setColor(view.role == Role.THIEF ? Color.CYAN : new Color(0.53f, 0.81f, 0.92f, 1f));
             shapes.circle((float) interpolator.selfX(), (float) interpolator.selfY(), 0.25f, 24);

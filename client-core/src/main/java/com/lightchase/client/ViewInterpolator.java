@@ -27,6 +27,7 @@ public final class ViewInterpolator {
     private double opponentX;
     private double opponentY;
     private boolean opponentVisible;
+    private boolean opponentCarrying;
 
     public ViewInterpolator(long windowMs) {
         this.windowMs = Math.max(1, windowMs);
@@ -49,12 +50,14 @@ public final class ViewInterpolator {
         current = null;
         currentAtMs = 0;
         opponentVisible = false;
+        opponentCarrying = false;
         selfX = selfY = opponentX = opponentY = 0;
     }
 
     /** Compute the positions to draw at {@code nowMs}. Call once per frame before rendering. */
     public void sample(long nowMs) {
         opponentVisible = false;
+        opponentCarrying = false;
         if (current == null) return;
 
         double alpha = 1.0;
@@ -76,11 +79,14 @@ public final class ViewInterpolator {
             double oy = hadOpponent ? previous.opponent.y : current.opponent.y;
             opponentX = ox + (current.opponent.x - ox) * alpha;
             opponentY = oy + (current.opponent.y - oy) * alpha;
+            // A boolean cannot be interpolated: always follow the newest snapshot.
+            opponentCarrying = current.opponent.carrying;
         }
     }
 
     public boolean hasCurrent() { return current != null; }
     public boolean opponentVisible() { return opponentVisible; }
+    public boolean opponentCarrying() { return opponentCarrying; }
     public double selfX() { return selfX; }
     public double selfY() { return selfY; }
     public double opponentX() { return opponentX; }

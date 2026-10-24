@@ -9,13 +9,37 @@ public class ViewInterpolatorTest {
 
     private static PlayerView view(String matchId, long tick, double x, double y,
                                    Double opponentX, Double opponentY) {
+        return view(matchId, tick, x, y, opponentX, opponentY, false);
+    }
+
+    private static PlayerView view(String matchId, long tick, double x, double y,
+                                   Double opponentX, Double opponentY, boolean opponentCarrying) {
         VisibleOpponent opponent = opponentX == null ? null
-                : new VisibleOpponent("p2", Role.POLICE, opponentX, opponentY, 0, false);
+                : new VisibleOpponent("p2", Role.POLICE, opponentX, opponentY, 0, opponentCarrying);
         return new PlayerView(matchId, tick, 0, 0, Role.THIEF, 5400, 0, 0, false,
                 new ActorPose("p1", x, y, 0), opponent,
                 Collections.singletonList(new OriginStatus("M1", false)),
                 new ThiefPrivate(null, Protection.NORMAL, 0, Collections.emptyList(),
                         Collections.emptyList(), new InteractionView(null, null, 0, false, "NO_TARGET")));
+    }
+
+    @Test public void carryingFollowsTheNewestSnapshotAndIsNotInterpolated() {
+        ViewInterpolator i = new ViewInterpolator(100);
+        i.accept(view("m1", 1, 10, 5, 20.0, 9.0, false), 1000);
+        i.sample(1000);
+        assertFalse(i.opponentCarrying());
+
+        i.accept(view("m1", 2, 10, 5, 20.0, 9.0, true), 1100);
+        i.sample(1150);
+        assertTrue("a boolean cannot be half way", i.opponentCarrying());
+
+        i.accept(view("m1", 3, 10, 5, 20.0, 9.0, false), 1200);
+        i.sample(1220);
+        assertFalse("dropping the material is immediate", i.opponentCarrying());
+
+        i.accept(view("m1", 4, 10, 5, null, null, true), 1300);
+        i.sample(1300);
+        assertFalse("a hidden opponent carries nothing the police may draw", i.opponentCarrying());
     }
 
     @Test public void firstSnapshotIsUsedAsIs() {
