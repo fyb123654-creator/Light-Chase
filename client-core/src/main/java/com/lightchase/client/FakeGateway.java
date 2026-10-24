@@ -160,25 +160,34 @@ public final class FakeGateway implements ClientGateway {
     }
 
     @Override public void leaveRoom() {
+        if (listener == null) return;
         // Contract §12: LEAVE_ROOM during RUNNING turns into a Departure, so the match is settled
         // first and the membership is only dropped afterwards. Closing straight away would hide the
         // result the server is obliged to send.
+        String id = nextRequestId();
+        listener.onControl(new ControlStatus(id, "LEAVE_ROOM", ControlStatus.State.PENDING, null));
         if (phase == RoomPhase.RUNNING) finish(ResultReason.QUIT);
-        leave();
+        listener.onControl(new ControlStatus(id, "LEAVE_ROOM", ControlStatus.State.SUCCEEDED, null));
+        close();
     }
 
-    @Override public void background() { leave(); }
+    @Override public void background() {
+        // Contract §12.1: backgrounding is best effort - the request may end as CANCELLED, and the
+        // server is not obliged to have settled anything.
+        if (listener != null) {
+            listener.onControl(new ControlStatus(nextRequestId(), "LEAVE_ROOM", ControlStatus.State.CANCELLED, null));
+        }
+        close();
+    }
 
     @Override public void close() {
-        boolean wasConnected = connected;
         connected = false;
         ready = false;
         phase = RoomPhase.LOBBY;
         input = InputFrame.ZERO;
         if (listener == null) return;
-        if (wasConnected) {
-            listener.onControl(new ControlStatus(nextRequestId(), "LEAVE_ROOM", ControlStatus.State.SUCCEEDED, null));
-        }
+        // No control event here: close() also runs for dispose(), mode switches and error paths, and
+        // inventing a LEAVE_ROOM ACK for those would put an action in the UI the player never took.
         listener.onSession(null);
         listener.onConnection(new ConnectionStatus(ConnectionStates.CLOSED, "offline fixture closed"));
         listener = null;
@@ -336,16 +345,24 @@ public final class FakeGateway implements ClientGateway {
     }
 
     /**
-     * Whose win a given ending implies. A departure is always the opponent's win, whichever role the
-     * departing player has; that is why this cannot be a single "escaped ? thief : police".
+     * Whose win a given ending implies (contract §8): a departure is the opponent's win whichever
+     * role leaves, escape is the thief's, capture and timeout are the police's, and a match that
+     * ended without a winner (both left, server abort) must carry {@code winner = null} rather than
+     * handing the police a victory nobody earned.
      */
-    private Role winnerFor(ResultReason reason) {
+    Role winnerFor(ResultReason reason) {
         switch (reason) {
-            case ESCAPED: return Role.THIEF;
+            case ESCAPED:
+                return Role.THIEF;
+            case BOTH_LEFT:
+            case SERVER_ABORTED:
+                return null;
             case QUIT:
             case BACKGROUND:
-            case DISCONNECT: return selfRole == Role.POLICE ? Role.THIEF : Role.POLICE;
-            default: return Role.POLICE;
+            case DISCONNECT:
+                return selfRole == Role.POLICE ? Role.THIEF : Role.POLICE;
+            default:
+                return Role.POLICE;   // TIMEOUT, CAPTURED
         }
     }
 
@@ -357,10 +374,6 @@ public final class FakeGateway implements ClientGateway {
         tick = 0;
         input = InputFrame.ZERO;
         emitRoom();
-    }
-
-    private void leave() {
-        close();
     }
 
     private void emitRoom() {

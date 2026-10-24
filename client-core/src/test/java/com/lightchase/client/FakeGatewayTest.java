@@ -18,7 +18,8 @@ public class FakeGatewayTest {
         int results;
 
         public void onSession(SessionInfo session) { this.session = session; }
-        public void onControl(ControlStatus status) { control = status; }
+        final java.util.List<String> controlLog = new java.util.ArrayList<>();
+        public void onControl(ControlStatus status) { control = status; controlLog.add(status.action + ':' + status.state); }
         public void onConnection(ConnectionStatus s) { state = s.state; }
         public void onRoom(RoomState s) {
             assertNotNull("room update must never precede the session", session);
@@ -35,6 +36,27 @@ public class FakeGatewayTest {
         g.configure(data);
         g.connect(new ConnectionOptions("offline", 8080, "DEMO", "test", data.mapHash, data.configHash), listener);
         return g;
+    }
+
+    @Test public void theResultWinnerFollowsTheContractForEveryReason() {
+        DataFiles d = DataFiles.bundled();
+        Listener l = new Listener();
+        FakeGateway g = fixture(d, l);
+
+        assertEquals(Role.THIEF, g.winnerFor(ResultReason.ESCAPED));
+        assertEquals(Role.POLICE, g.winnerFor(ResultReason.CAPTURED));
+        assertEquals(Role.POLICE, g.winnerFor(ResultReason.TIMEOUT));
+        assertNull("both left: nobody won", g.winnerFor(ResultReason.BOTH_LEFT));
+        assertNull("server abort must not award a win", g.winnerFor(ResultReason.SERVER_ABORTED));
+
+        // A departure always hands the win to the other side, whichever role leaves.
+        for (ResultReason leaving : new ResultReason[]{
+                ResultReason.QUIT, ResultReason.BACKGROUND, ResultReason.DISCONNECT}) {
+            assertEquals("thief leaving", Role.POLICE, g.winnerFor(leaving));
+            g.selectRole(Role.POLICE);
+            assertEquals("police leaving", Role.THIEF, g.winnerFor(leaving));
+            g.selectRole(Role.THIEF);
+        }
     }
 
     @Test public void leavingARunningMatchSettlesItBeforeDroppingTheSession() {
@@ -143,11 +165,39 @@ public class FakeGatewayTest {
         g.advance(1);
 
         assertNull(l.session);
-        assertEquals(ControlStatus.State.SUCCEEDED, l.control.state);
+        // Contract §12.1: backgrounding is best effort; the request may end as CANCELLED.
+        assertEquals(ControlStatus.State.CANCELLED, l.control.state);
         assertEquals("CLOSED", l.state);
         assertEquals(0, g.lastInput().moveX, 0);
         assertFalse(g.lastInput().interactHeld);
         assertEquals(x, l.view.self.x, 0);
+    }
+
+    @Test public void onlyLeaveRoomAcknowledgesLeavingAndOnlyForTheAskingPlayer() {
+        DataFiles d = DataFiles.bundled();
+
+        // leaveRoom(): PENDING then a terminal ACK, exactly like the real gateway.
+        Listener l1 = new Listener();
+        FakeGateway g1 = fixture(d, l1);
+        g1.setReady(true);
+        g1.advance(3.2f);
+        l1.controlLog.clear();   // only the leaving sequence matters here
+        g1.leaveRoom();
+        assertEquals(java.util.Arrays.asList(
+                "LEAVE_ROOM:PENDING", "LEAVE_ROOM:SUCCEEDED"), l1.controlLog);
+
+        // background(): best effort, so the request ends as CANCELLED rather than SUCCEEDED.
+        Listener l2 = new Listener();
+        FakeGateway g2 = fixture(d, l2);
+        g2.background();
+        assertEquals(java.util.Collections.singletonList("LEAVE_ROOM:CANCELLED"), l2.controlLog);
+
+        // close(): used by dispose(), mode switches and error paths. It must not invent a control
+        // event the player never triggered.
+        Listener l3 = new Listener();
+        FakeGateway g3 = fixture(d, l3);
+        g3.close();
+        assertTrue("close must not fabricate a control event, saw " + l3.controlLog, l3.controlLog.isEmpty());
     }
 
     @Test public void policeFixtureDoesNotExposeThiefPrivateState() {
