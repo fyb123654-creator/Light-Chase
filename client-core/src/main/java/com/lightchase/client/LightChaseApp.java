@@ -162,10 +162,10 @@ public final class LightChaseApp extends ApplicationAdapter {
     // ---------------------------------------------------------------- gateway
 
     private void connect() {
-        if (ConnectionStates.CONNECTING.equals(connectionState)
+        if (ConnectionStates.isSessionAlive(connectionState)
+                || ConnectionStates.CONNECTING.equals(connectionState)
                 || ConnectionStates.HANDSHAKING.equals(connectionState)
-                || ConnectionStates.JOINING.equals(connectionState)
-                || ConnectionStates.CONNECTED.equals(connectionState)) {
+                || ConnectionStates.JOINING.equals(connectionState)) {
             errorText = "ALREADY_CONNECTED - a session already exists";
             return;
         }
@@ -238,7 +238,7 @@ public final class LightChaseApp extends ApplicationAdapter {
             public void onConnection(ConnectionStatus s) { callbacks.add(() -> {
                 connectionState = s.state;
                 connectionDetail = s.reason == null ? "" : s.reason;
-                if (!ConnectionStates.CONNECTED.equals(s.state)) { dropFrame(); touch.clear(); }
+                if (!ConnectionStates.isSessionAlive(s.state)) { dropFrame(); touch.clear(); }
             }); }
             public void onRoom(RoomState s) { callbacks.add(() -> {
                 room = s;
@@ -341,7 +341,7 @@ public final class LightChaseApp extends ApplicationAdapter {
     }
 
     private Page page() {
-        if (!ConnectionStates.CONNECTED.equals(connectionState) || session == null) return Page.CONNECT;
+        if (!ConnectionStates.isSessionAlive(connectionState) || session == null) return Page.CONNECT;
         if (room == null) return Page.CONNECT;
         switch (room.phase) {
             case LOBBY: return Page.LOBBY;
@@ -643,7 +643,8 @@ public final class LightChaseApp extends ApplicationAdapter {
         String delivered = view == null ? "-" : Integer.toString(view.deliveredCount);
         String exits = view == null ? "-" : (view.exitsOpen ? "OPEN" : "CLOSED");
         font.setColor(Color.WHITE);
-        font.draw(batch, "TIME " + time + "s     MARKS " + marks + "/3     DELIVERED " + delivered + "/3     EXITS " + exits,
+        font.draw(batch, "TIME " + time + "s     MARKS " + marks + "/" + data.rules.maxMarks
+                        + "     DELIVERED " + delivered + "/" + data.map.materials.size() + "     EXITS " + exits,
                 30, 672);
 
         if (!ConnectionStates.CONNECTED.equals(connectionState)) {
