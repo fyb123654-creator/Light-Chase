@@ -341,7 +341,6 @@ public final class FakeGateway implements ClientGateway {
     }
 
     private void leave() {
-        if (listener == null) { close(); return; }
         close();
     }
 
@@ -428,6 +427,14 @@ public final class FakeGateway implements ClientGateway {
         headingRad = 0;
         input = InputFrame.ZERO;
         lastResult = null;
+        // Match state too: a new connection must not inherit a previous match's carry, protection,
+        // interaction or opened exits, even though startMatch() resets them as well.
+        carrying = null;
+        protection = Protection.NORMAL;
+        protectionTicks = 0;
+        interactionTarget = null;
+        interactionProgress = 0;
+        exitsOpen = false;
         x = data.map.width / 2.0;
         y = data.map.height / 2.0;
         opponentX = x + 2;
