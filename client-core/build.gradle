@@ -1,2 +1,9 @@
 plugins { id 'java-library' }
-dependencies { api project(':contracts'); implementation project(':game-data'); api 'com.badlogicgames.gdx:gdx:1.14.2' }
+dependencies {
+    api project(':contracts')
+    implementation project(':game-data')
+    api 'com.badlogicgames.gdx:gdx:1.14.2'
+    // Test-only: the client asserts the field story it draws against the real rules engine (A).
+    // Production code must not depend on game-core; the Android client only ever sees PlayerView.
+    testImplementation project(':game-core')
+}
