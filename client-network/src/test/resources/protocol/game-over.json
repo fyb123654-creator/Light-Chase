@@ -1,0 +1,1 @@
+{"v":1,"type":"GAME_OVER","seq":45,"requestId":null,"matchId":"m-001","body":{"resultId":"m-001:result","matchId":"m-001","winner":"POLICE","reason":"CAPTURED","departedPlayerId":null,"elapsedTicks":600,"marks":3,"deliveredCount":1,"finalTick":600}}

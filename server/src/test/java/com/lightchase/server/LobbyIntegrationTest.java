@@ -52,7 +52,7 @@ public class LobbyIntegrationTest {
         WebSocketClientGateway cb=connect(b,data.mapHash);awaitRoom(b,2,false);
         ca.selectRole(Role.POLICE);awaitRoom(a,2,true);
         cb.selectRole(Role.POLICE);awaitError(b,"ROLE_TAKEN");
-        cb.setReady(true);awaitError(b,"INVALID_PHASE");
+        cb.setReady(true);awaitError(b,"ROLE_REQUIRED");
     }
     @Test public void thirdClientCannotReplaceExistingPlayers() throws Exception {
         Listener a=new Listener(),b=new Listener(),c=new Listener();
@@ -69,13 +69,16 @@ public class LobbyIntegrationTest {
         RoomState room=awaitRoom(l,1,false);
         assertFalse(l.roomBeforeIdentity);assertNotNull(l.session);
         assertEquals(l.session.playerId,room.players.get(0).playerId);
+        client.setReady(true);awaitError(l,"ROLE_REQUIRED");
         client.selectRole(Role.POLICE);awaitRoom(l,1,true);
-        client.setReady(true);awaitError(l,"INVALID_PHASE");
+        client.setReady(true);
+        RoomState prepared=awaitRoom(l,1,true);
+        assertTrue(prepared.players.get(0).ready);assertEquals(RoomPhase.LOBBY,prepared.phase);
         boolean pending=false,success=false,failed=false;
         for(ControlStatus c:l.controls){
             if(c.action.equals("SELECT_ROLE")&&c.state==ControlStatus.State.PENDING)pending=true;
             if(c.action.equals("SELECT_ROLE")&&c.state==ControlStatus.State.SUCCEEDED)success=true;
-            if(c.action.equals("SET_READY")&&c.state==ControlStatus.State.FAILED&&"INVALID_PHASE".equals(c.errorCode))failed=true;
+            if(c.action.equals("SET_READY")&&c.state==ControlStatus.State.FAILED&&"ROLE_REQUIRED".equals(c.errorCode))failed=true;
         }
         assertTrue(pending);assertTrue(success);assertTrue(failed);
         client.close();assertNull(l.session);

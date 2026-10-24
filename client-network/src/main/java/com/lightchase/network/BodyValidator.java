@@ -31,7 +31,7 @@ final class BodyValidator {
                 if(c==int.class)e.getAsBigDecimal().intValueExact();
                 else if(c==long.class){long n=e.getAsBigDecimal().longValueExact();if(n<0||n>9007199254740991L)bad();}
                 else if(!Double.isFinite(e.getAsDouble()))bad();
-            }catch(ArithmeticException ex){bad();}return;
+            }catch(ArithmeticException | NumberFormatException ex){bad();}return;
         }
         if(!e.isJsonObject())bad();
         JsonObject o=e.getAsJsonObject();Set<String> names=new HashSet<>();

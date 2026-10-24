@@ -4,3 +4,10 @@ dependencies {
     implementation 'org.java-websocket:Java-WebSocket:1.6.0'
     implementation 'com.google.code.gson:gson:2.11.0'
 }
+
+// Shared contract fixtures belong on the test classpath, independent of the working directory.
+sourceSets.test.resources.srcDir(rootProject.file('docs/development/fixtures'))
+
+tasks.named('test') {
+    systemProperty 'lightchase.repoRoot', rootProject.projectDir.absolutePath
+}
