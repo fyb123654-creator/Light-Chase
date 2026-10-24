@@ -707,8 +707,8 @@ public final class LightChaseApp extends ApplicationAdapter {
         font.draw(batch, "YOUR RESULT  " + (noWinner ? "NO DECISION" : (iWon ? "WIN" : "LOSS"))
                 + "   (you are " + selectedRole + ")", 60, 530);
         font.draw(batch, "REASON  " + result.reason, 60, 490);
-        font.draw(batch, "MARKS  " + result.marks + "/3", 60, 450);
-        font.draw(batch, "DELIVERED  " + result.deliveredCount + "/3", 60, 410);
+        font.draw(batch, "MARKS  " + result.marks + "/" + data.rules.maxMarks, 60, 450);
+        font.draw(batch, "DELIVERED  " + result.deliveredCount + "/" + data.map.materials.size(), 60, 410);
         font.draw(batch, String.format(Locale.ROOT, "ELAPSED  %.1fs", result.elapsedTicks / ticksPerSecond()), 60, 370);
         font.draw(batch, "BACK TO LOBBY", 150, 304);
         font.setColor(Color.LIGHT_GRAY);
