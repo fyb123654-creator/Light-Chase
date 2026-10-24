@@ -97,8 +97,10 @@ public final class LightChaseApp extends ApplicationAdapter {
     // ---------------------------------------------------------------- lifecycle
 
     @Override public void create() {
-        data = DataFiles.read(Gdx.files.internal("maps/test-room.json").readBytes(),
-                Gdx.files.internal("rules/v1.json").readBytes());
+        // Assets come from the Android asset folder (game-data/resources). Which map is loaded is
+        // decided in one place, ClientAssets.MAP, so a switch to the formal map is all-or-nothing.
+        data = DataFiles.read(Gdx.files.internal(ClientAssets.MAP).readBytes(),
+                Gdx.files.internal(ClientAssets.RULES).readBytes());
         if (offlineGateway instanceof FakeGateway) ((FakeGateway) offlineGateway).configure(data);
 
         shapes = new ShapeRenderer();
