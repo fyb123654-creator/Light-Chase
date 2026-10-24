@@ -159,7 +159,13 @@ public final class FakeGateway implements ClientGateway {
         listener.onControl(new ControlStatus(id, "RETURN_LOBBY", ControlStatus.State.SUCCEEDED, null));
     }
 
-    @Override public void leaveRoom() { leave(); }
+    @Override public void leaveRoom() {
+        // Contract §12: LEAVE_ROOM during RUNNING turns into a Departure, so the match is settled
+        // first and the membership is only dropped afterwards. Closing straight away would hide the
+        // result the server is obliged to send.
+        if (phase == RoomPhase.RUNNING) finish(ResultReason.QUIT);
+        leave();
+    }
 
     @Override public void background() { leave(); }
 
@@ -323,11 +329,24 @@ public final class FakeGateway implements ClientGateway {
         phase = RoomPhase.FINISHED;
         ready = false;
         input = InputFrame.ZERO;
-        Role winner = (reason == ResultReason.ESCAPED) ? Role.THIEF : Role.POLICE;
-        lastResult = new MatchResult(nextRequestId(), MATCH_ID, winner, reason, null,
+        lastResult = new MatchResult(nextRequestId(), MATCH_ID, winnerFor(reason), reason, null,
                 (int) Math.round(matchSeconds * data.rules.tickRate), marks, delivered, tick);
         emitRoom();
         listener.onResult(lastResult);
+    }
+
+    /**
+     * Whose win a given ending implies. A departure is always the opponent's win, whichever role the
+     * departing player has; that is why this cannot be a single "escaped ? thief : police".
+     */
+    private Role winnerFor(ResultReason reason) {
+        switch (reason) {
+            case ESCAPED: return Role.THIEF;
+            case QUIT:
+            case BACKGROUND:
+            case DISCONNECT: return selfRole == Role.POLICE ? Role.THIEF : Role.POLICE;
+            default: return Role.POLICE;
+        }
     }
 
     private void backToLobby() {

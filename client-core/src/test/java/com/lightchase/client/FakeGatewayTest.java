@@ -37,6 +37,49 @@ public class FakeGatewayTest {
         return g;
     }
 
+    @Test public void leavingARunningMatchSettlesItBeforeDroppingTheSession() {
+        DataFiles d = DataFiles.bundled();
+        Listener l = new Listener();
+        FakeGateway g = fixture(d, l);
+        g.setReady(true);
+        g.advance(3.2f);
+        assertEquals(RoomPhase.RUNNING, l.room.phase);
+
+        g.leaveRoom();
+
+        assertEquals("leaving mid-match must produce a result", 1, l.results);
+        assertEquals(ResultReason.QUIT, l.result.reason);
+        assertEquals("a quitting thief hands the win to the police", Role.POLICE, l.result.winner);
+        assertNull("the session is dropped only after the result", l.session);
+        assertEquals(ConnectionStates.CLOSED, l.state);
+    }
+
+    @Test public void theWinnerOfADepartureIsTheOtherSideWhicheverRoleLeaves() {
+        DataFiles d = DataFiles.bundled();
+        Listener l = new Listener();
+        FakeGateway g = fixture(d, l);
+        g.selectRole(Role.POLICE);
+        g.setReady(true);
+        g.advance(3.2f);
+
+        g.leaveRoom();
+
+        assertEquals(ResultReason.QUIT, l.result.reason);
+        assertEquals("a quitting police officer hands the win to the thief", Role.THIEF, l.result.winner);
+    }
+
+    @Test public void leavingTheLobbyNeverProducesAResult() {
+        DataFiles d = DataFiles.bundled();
+        Listener l = new Listener();
+        FakeGateway g = fixture(d, l);
+        assertEquals(RoomPhase.LOBBY, l.room.phase);
+
+        g.leaveRoom();
+
+        assertEquals("no match, no result", 0, l.results);
+        assertNull(l.session);
+    }
+
     @Test public void connectReportsSessionThenRoom() {
         DataFiles d = DataFiles.bundled();
         Listener l = new Listener();

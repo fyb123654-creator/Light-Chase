@@ -32,6 +32,11 @@ public final class LightChaseApp extends ApplicationAdapter {
 
     private static final long INTERP_WINDOW_MS = 100;
 
+    /** Quit button on the match screen. Kept clear of the stick and the action buttons. */
+    private static final float QUIT_X = 520f, QUIT_Y = 30f, QUIT_W = 240f, QUIT_H = 56f;
+    /** How long to keep the connection open hoping for GAME_OVER before telling the player. */
+    private static final long QUIT_TIMEOUT_MS = 5000;
+
     private ClientGateway gateway;
     private final ClientGateway offlineGateway;
     private final java.util.function.Supplier<ClientGateway> lanGatewayFactory;
@@ -71,6 +76,8 @@ public final class LightChaseApp extends ApplicationAdapter {
     private final ViewInterpolator interpolator = new ViewInterpolator(INTERP_WINDOW_MS);
     private final java.util.Set<String> pendingControls = new java.util.HashSet<>();
     private WorldRenderer worldRenderer;
+    private boolean quittingMatch;
+    private long quitAtMs;
 
     public LightChaseApp(ClientGateway offlineGateway) {
         this(offlineGateway, null, null);
@@ -108,6 +115,9 @@ public final class LightChaseApp extends ApplicationAdapter {
                 Vector2 p = unproject(sx, sy);
                 if (p.x < 0 || p.x > TouchController.UI_WIDTH || p.y < 0 || p.y > TouchController.UI_HEIGHT) return false;
                 if (page() != Page.MATCH) return tap(p, pointer);
+                // A page-level button on the match screen (QUIT) must win over the touch controls,
+                // but every other touch still belongs to the stick/hold/drop.
+                if (tap(p, pointer)) return true;
                 return touch.down(pointer, p.x, p.y, selectedRole == Role.THIEF);
             }
             @Override public boolean touchDragged(int sx, int sy, int pointer) {
@@ -303,8 +313,13 @@ public final class LightChaseApp extends ApplicationAdapter {
         } else {
             pendingControls.remove(s.action);
         }
+        // The gateway drives the handshake itself; reporting HELLO/JOIN_ROOM here would spam the
+        // notice line with steps the player never took.
+        if ("HELLO".equals(s.action) || "JOIN_ROOM".equals(s.action) || "HEARTBEAT".equals(s.action)) return;
+        if ("LEAVE_ROOM".equals(s.action)) quittingMatch = false;
         notice = s.action + ": " + s.state + (s.errorCode == null ? "" : " (" + s.errorCode + ")");
         if (s.state == ControlStatus.State.FAILED) errorText = s.action + " failed: " + s.errorCode;
+        if (s.state == ControlStatus.State.TIMED_OUT) errorText = s.action + " timed out";
         if (s.state == ControlStatus.State.SUCCEEDED) errorText = "";
     }
 
@@ -321,6 +336,7 @@ public final class LightChaseApp extends ApplicationAdapter {
         result = null;
         touch.clear();
         pendingControls.clear();
+        quittingMatch = false;
         lastViewMatchId = null;
         lastViewTick = Long.MIN_VALUE;
     }
@@ -402,7 +418,29 @@ public final class LightChaseApp extends ApplicationAdapter {
             }
             return true;
         }
+
+        if (page == Page.MATCH) {
+            if (inside(p, QUIT_X, QUIT_Y, QUIT_W, QUIT_H)) {
+                requestQuit();
+                return true;
+            }
+            return false;
+        }
         return false;
+    }
+
+    /**
+     * Quitting mid-match is not a local disconnect: the contract turns LEAVE_ROOM in RUNNING into a
+     * Departure that the server commits on the next step, then it sends GAME_OVER to both sides.
+     * The connection therefore has to stay open until the result arrives.
+     */
+    private void requestQuit() {
+        if (quittingMatch || pending("LEAVE_ROOM")) return;
+        touch.clear();
+        quittingMatch = true;
+        quitAtMs = System.nanoTime() / 1_000_000L;
+        notice = "Leaving the match - waiting for the server to settle it";
+        gateway.leaveRoom();
     }
 
     private void edit(String title, String current, String hint, java.util.function.Consumer<String> apply) {
@@ -437,6 +475,12 @@ public final class LightChaseApp extends ApplicationAdapter {
         Runnable next;
         while ((next = callbacks.poll()) != null) next.run();
 
+        if (quittingMatch && System.nanoTime() / 1_000_000L - quitAtMs > QUIT_TIMEOUT_MS) {
+            // The server never acknowledged the departure; keep the match usable rather than
+            // leaving the button spinning forever.
+            quittingMatch = false;
+            notice = "Quit was not acknowledged; the match is still running";
+        }
         Page page = page();
         if (page != lastPage) {
             notice = "";
@@ -510,6 +554,8 @@ public final class LightChaseApp extends ApplicationAdapter {
                         shapes.rect(TouchController.HOLD_X - 90, TouchController.HOLD_Y + 86, 180 * progress, 14);
                     }
                 }
+                // Quitting mid-match keeps the connection open until the server sends GAME_OVER.
+                button(QUIT_X, QUIT_Y, QUIT_W, QUIT_H, false, !quittingMatch && !pending("LEAVE_ROOM"));
                 break;
             }
             case RESULT:
@@ -652,6 +698,10 @@ public final class LightChaseApp extends ApplicationAdapter {
             font.draw(batch, "NET " + connectionState + (connectionDetail.isEmpty() ? "" : " - " + connectionDetail),
                     700, 640);
         }
+
+        font.setColor(quittingMatch ? new Color(1f, 0.75f, 0.35f, 1f) : Color.WHITE);
+        font.draw(batch, quittingMatch ? "LEAVING ..." : "QUIT MATCH", QUIT_X + 52, QUIT_Y + 34);
+        font.setColor(Color.WHITE);
 
         ThiefPrivate thief = view == null ? null : view.thief;
         if (thief != null) {
