@@ -87,7 +87,7 @@ public final class FakeGateway implements ClientGateway {
         listener.onConnection(new ConnectionStatus(ConnectionStates.CONNECTING, "offline fixture"));
         if (scenario == Scenario.CONNECT_FAIL) {
             listener.onConnection(new ConnectionStatus(ConnectionStates.DISCONNECTED, "offline fixture: host unreachable"));
-            listener.onError(new GatewayError("CONNECT_FAILED", "offline fixture cannot reach the host", true, null));
+            listener.onError(new GatewayError("CONNECT_TIMEOUT", "offline fixture cannot reach the host", true, null));
             return;
         }
 

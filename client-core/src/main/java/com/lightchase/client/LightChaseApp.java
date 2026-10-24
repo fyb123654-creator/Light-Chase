@@ -279,8 +279,7 @@ public final class LightChaseApp extends ApplicationAdapter {
                 // stay in CONNECTING and its own ALREADY_CONNECTED guard would block every retry.
                 boolean transportFailed = !e.recoverable
                         || "CONNECTION_LOST".equals(e.code)
-                        || "CONNECT_TIMEOUT".equals(e.code)
-                        || "CONNECT_FAILED".equals(e.code);
+                        || "CONNECT_TIMEOUT".equals(e.code);
                 if (transportFailed) {
                     try {
                         gateway.close();

@@ -285,7 +285,7 @@ public class FakeGatewayTest {
         assertEquals(ConnectionStates.DISCONNECTED, l.state);
         assertNull(l.session);
         assertNotNull(l.error);
-        assertEquals("CONNECT_FAILED", l.error.code);
+        assertEquals("CONNECT_TIMEOUT", l.error.code);
         assertNull(l.room);
     }
 
