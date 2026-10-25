@@ -2,13 +2,12 @@ package com.lightchase.network;
 
 import com.google.gson.*;
 import com.lightchase.contracts.Protocol;
-import java.nio.charset.StandardCharsets;
 import java.util.*;
 
 /** Shared JSON framing for B's server and client adapter. No gameplay decisions. */
 public final class WireCodec {
     public static final int MAX_BYTES = 64 * 1024;
-    private static final Set<String> FIELDS = new HashSet<>(Arrays.asList("v","type","seq","requestId","matchId","body"));
+    public static final long MAX_SAFE_INTEGER = 9007199254740991L;
     private final Gson gson = new GsonBuilder().serializeNulls().create();
 
     public static final class Message {
@@ -21,16 +20,38 @@ public final class WireCodec {
         }
     }
     public Message decode(String text) {
-        if(text.getBytes(StandardCharsets.UTF_8).length > MAX_BYTES) throw new IllegalArgumentException("MESSAGE_TOO_LARGE");
-        JsonElement parsed = JsonParser.parseString(text);
-        if(!parsed.isJsonObject()) throw new IllegalArgumentException("BAD_MESSAGE");
-        JsonObject o = parsed.getAsJsonObject();
+        JsonObject o = WireJson.parse(text);
         exactFields(o, "v","type","seq","requestId","matchId","body");
         long seq = integer(o, "seq");
         long version = integer(o, "v");
-        if(version<1 || version>Integer.MAX_VALUE || seq<1 || seq>9007199254740991L) throw new IllegalArgumentException("BAD_MESSAGE");
+        if(version<1 || version>Integer.MAX_VALUE || seq<1 || seq>MAX_SAFE_INTEGER) throw new IllegalArgumentException("BAD_MESSAGE");
         if(!o.get("body").isJsonObject()) throw new IllegalArgumentException("BAD_MESSAGE");
-        return new Message((int)version, string(o,"type"), seq, nullableString(o,"requestId"), nullableString(o,"matchId"),o.getAsJsonObject("body"));
+        String request = nullableString(o,"requestId");
+        if(request != null && (request.isEmpty() || request.length() > 64)) throw new IllegalArgumentException("BAD_MESSAGE");
+        return new Message((int)version, string(o,"type"), seq, request, nullableString(o,"matchId"),o.getAsJsonObject("body"));
+    }
+
+    /** Server entry: decode a message sent by a client, before applying session/phase rules. */
+    public Message decodeClient(String text) {
+        Message m = decode(text);
+        validateClient(m);
+        return m;
+    }
+
+    /** Client entry: decode a message sent by the server, before applying local state rules. */
+    public Message decodeServer(String text) {
+        Message m = decode(text);
+        validateServer(m);
+        return m;
+    }
+
+    public void validateClient(Message m) {
+        // Leave other-version bodies uninterpreted so the receiver can report VERSION_MISMATCH.
+        if(m.v == Protocol.VERSION) MessageSchema.client(m);
+    }
+
+    public void validateServer(Message m) {
+        if(m.v == Protocol.VERSION) MessageSchema.server(m);
     }
     public String encode(String type, long seq, String requestId, String matchId, Object body) {
         JsonObject o=new JsonObject();
@@ -58,7 +79,7 @@ public final class WireCodec {
         JsonElement e=o.get(key);
         if(e==null || !e.isJsonPrimitive() || !e.getAsJsonPrimitive().isNumber()) throw new IllegalArgumentException("BAD_MESSAGE");
         try { return e.getAsBigDecimal().longValueExact(); }
-        catch(ArithmeticException ex) { throw new IllegalArgumentException("BAD_MESSAGE"); }
+        catch(ArithmeticException | NumberFormatException ex) { throw new IllegalArgumentException("BAD_MESSAGE", ex); }
     }
     public static boolean bool(JsonObject o,String key) {
         JsonElement e=o.get(key);

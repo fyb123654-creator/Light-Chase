@@ -1,12 +1,16 @@
 package com.lightchase.network;
 import com.lightchase.contracts.*;
 import com.google.gson.*;
-import java.nio.file.*;
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import org.junit.Test;
 import static org.junit.Assert.*;
 public class BodyValidatorTest {
     private JsonObject sample() throws Exception {
-        return JsonParser.parseString(Files.readString(Path.of("../docs/development/fixtures/room-lobby.json"))).getAsJsonObject();
+        try (InputStream in = getClass().getResourceAsStream("/room-lobby.json")) {
+            assertNotNull("Shared fixture must be on the test classpath", in);
+            return JsonParser.parseString(new String(in.readAllBytes(), StandardCharsets.UTF_8)).getAsJsonObject();
+        }
     }
     @Test public void sharedFixtureAcceptsExplicitNullableFields() throws Exception {
         BodyValidator.validate(sample(),RoomState.class);

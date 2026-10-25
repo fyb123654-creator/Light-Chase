@@ -14,6 +14,9 @@ final class ControlRequests {
     void begin(String id,String action,long now){
         pending.put(id,new Pending(action,now));emit(id,action,ControlStatus.State.PENDING,null);
     }
+    boolean isPending(String id,String action){
+        Pending p=pending.get(id);return p!=null&&p.action.equals(action);
+    }
     void complete(String id,String action,String error){
         Pending p=pending.get(id);if(p==null)return;
         if(action!=null&&!p.action.equals(action))throw new IllegalArgumentException("ACK_ACTION_MISMATCH");
