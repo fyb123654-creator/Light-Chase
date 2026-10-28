@@ -8,3 +8,6 @@ captures/
 *.jks
 *.keystore
 .env
+
+# Local checkout of the course submission repository (never committed here).
+_Group_23_teacher/
