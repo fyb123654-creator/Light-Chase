@@ -4,4 +4,4 @@ dependencyResolutionManagement {
     repositories { google(); mavenCentral() }
 }
 rootProject.name = 'LightChase'
-include 'contracts', 'game-core', 'server', 'client-network', 'client-core', 'android', 'game-data'
+include 'contracts', 'game-core', 'server', 'client-network', 'client-core', 'app', 'game-data'

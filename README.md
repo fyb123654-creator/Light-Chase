@@ -16,7 +16,7 @@ Java + libGDX 的 Android 双人非对称追捕游戏。目标是两台客户端
 |---|---|---|
 | A：游戏逻辑 | game-core、game-data | 维护现有V1规则，推进正式图联合切换与试玩 |
 | B：双端网络 | server、client-network | 维护已实现网络边界，完成本轮文档/综合复审与设备联调配合 |
-| C：Android 界面 | android、client-core | 保留离线替身，增加服务器地址/房间输入及真实网关切换 |
+| C：Android 界面 | app、client-core | 保留离线替身，增加服务器地址/房间输入及真实网关切换 |
 
 contracts 和地图/规则文件需要三人协调变更。客户端只发送操作意图，服务器计算位置与胜负，界面消费按角色过滤的 PlayerView。
 
@@ -24,12 +24,12 @@ contracts 和地图/规则文件需要三人协调变更。客户端只发送操
 
 将仓库克隆到完整路径不含中文的位置，例如 C:\dev\Light-Chase。安装 JDK 21、Android Studio、Android SDK Platform 37 和 Build Tools 36.0.0；在 Android Studio 打开项目根目录并选择 JDK 21 作为 Gradle JDK。Java 源码编译目标为 17。
 
-只跑 JVM 模块（contracts、game-core、server、client-network、client-core）不需要 Android SDK，`.\gradlew.bat checkJvm` 直接可用。构建 `:android:` 才需要 SDK：Android Studio 会自动写 `local.properties`；用纯命令行时设置环境变量，例如 `$env:ANDROID_HOME="C:\Users\<你>\AppData\Local\Android\Sdk"`。
+只跑 JVM 模块（contracts、game-core、server、client-network、client-core）不需要 Android SDK，`.\gradlew.bat checkJvm` 直接可用。构建 `:app:` 才需要 SDK：Android Studio 会自动写 `local.properties`；用纯命令行时设置环境变量，例如 `$env:ANDROID_HOME="C:\Users\<你>\AppData\Local\Android\Sdk"`。
 
 ```powershell
 git clone https://github.com/fyb123654-creator/Light-Chase.git C:\dev\Light-Chase
 cd C:\dev\Light-Chase
-.\gradlew.bat checkJvm :android:assembleDebug :server:installDist
+.\gradlew.bat checkJvm :app:assembleDebug :server:installDist
 .\gradlew.bat :server:run
 ```
 
@@ -39,7 +39,7 @@ cd C:\dev\Light-Chase
 .\gradlew.bat :server:probe --args="127.0.0.1 8080"
 ```
 
-Android Studio 选择 android 运行配置和 API 37 模拟器，点击 Run。或用 SDK 的 adb 安装 android/build/outputs/apk/debug/android-debug.apk。第一次同步需下载依赖，local.properties 由 Android Studio 创建，不提交到 Git。
+Android Studio 选择 app 运行配置和 API 37 模拟器，点击 Run。或用 SDK 的 adb 安装 app/build/outputs/apk/debug/app-debug.apk。第一次同步需下载依赖，local.properties 由 Android Studio 创建，不提交到 Git。
 
 ## 已有内容与限制
 
