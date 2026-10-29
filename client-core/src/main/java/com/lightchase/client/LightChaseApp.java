@@ -52,8 +52,14 @@ public final class LightChaseApp extends ApplicationAdapter {
     private static final float BOX_H = 76f;
 
     /** The scene curtain: mist grey instead of pure white, and never fully opaque. */
-    private static final Color COVER = new Color(0.290f, 0.322f, 0.369f, 1f);   // #4A525E slate
-    private static final float COVER_PEAK = 0.92f;
+    private static final Color COVER = new Color(0.039f, 0.039f, 0.039f, 1f);   // #0A0A0A, the page background
+    // Black must be fully opaque: at 0.92 the outgoing page still shows through and the swap
+    // reads as a flicker.
+    private static final float COVER_PEAK = 1f;
+
+    /** The curtain sinks in this fast, holds, then takes COVER_OUT to clear. */
+    private static final float COVER_IN = 0.26f;
+    private static final float COVER_OUT = 1.14f;
 
     /** A press washes the slab white in this long, then falls back navy in the same time. */
     private static final float WASH_UP = 0.20f;
@@ -1529,12 +1535,8 @@ public final class LightChaseApp extends ApplicationAdapter {
      */
     private void coverNow() {
         if (fadePhase != 0) return;
-        fadePhase = 2;
+        fadePhase = 1;      // sink into the curtain first: the switch itself is a cut only in phase 2
         fadeT = 0f;
-        // Adopt the destination on the same frame the curtain becomes opaque. The new page then
-        // renders behind it for the whole hold and fade, so its entrance animations have already
-        // settled by the time it is visible - no half-turned police icon on the way back.
-        adoptPage();
     }
 
     /** Swaps in the page the room has been asking for; called only while the screen is white. */
@@ -1567,6 +1569,16 @@ public final class LightChaseApp extends ApplicationAdapter {
 
     private void updateTransition(float dt) {
         switch (fadePhase) {
+            case 1:
+                fadeT += dt / COVER_IN;
+                if (fadeT >= 1f) {
+                    // Opaque now, so the swap is invisible - and the destination starts rendering
+                    // behind the curtain while it holds, which is what lets its entrance settle.
+                    adoptPage();
+                    fadePhase = 2;
+                    fadeT = 0f;
+                }
+                break;
             case 2:
                 fadeT += dt / 0.26f;
                 if (fadeT >= 1f) {
@@ -1575,7 +1587,7 @@ public final class LightChaseApp extends ApplicationAdapter {
                 }
                 break;
             case 3:
-                fadeT += dt / 1.14f;
+                fadeT += dt / COVER_OUT;
                 if (fadeT >= 1f) {
                     fadePhase = 0;
                     fadeT = 0f;
@@ -1589,6 +1601,7 @@ public final class LightChaseApp extends ApplicationAdapter {
     /** 0..1 strength of the curtain; it tops out below 1 so the switch never flashes white. */
     private float fadeCover() {
         switch (fadePhase) {
+            case 1: return COVER_PEAK * UiAnim.smooth(fadeT);
             case 2: return COVER_PEAK;
             case 3: return COVER_PEAK * (1f - UiAnim.smooth(fadeT));
             default: return 0f;
