@@ -52,8 +52,8 @@ public final class LightChaseApp extends ApplicationAdapter {
     private static final float BOX_H = 76f;
 
     /** A press washes the slab white in this long, then falls back navy in the same time. */
-    private static final float WASH_UP = 0.15f;
-    private static final float WASH_DOWN = 0.15f;
+    private static final float WASH_UP = 0.20f;
+    private static final float WASH_DOWN = 0.20f;
 
     // Layout shared by the non-lobby pages.
     private static final float PAGE_KICKER = 136f;
@@ -131,8 +131,6 @@ public final class LightChaseApp extends ApplicationAdapter {
     /** Which secondary action is mid-pulse, and how far along. */
     /** Set when the lobby must show "nothing chosen" until the player taps a role. */
     private boolean suppressRoomRole = true;
-    /** A page changed while a press animation was still running: cover once it ends. */
-    private boolean coverPending;
     /** 0..1: how far the READY button has faded in (it only exists once a role is picked). */
     private float readyReveal;
     /** Button wash states: 0 = CONNECT, 1 = BACK TO LOBBY. */
@@ -177,7 +175,9 @@ public final class LightChaseApp extends ApplicationAdapter {
 
     /** Null until the player (re)picks: the lobby always starts without a role. */
     private Role selectedRole;
-    private Page lastPage;
+    /** What is actually on screen. It lags behind {@link #page()} until the cover is white,
+     *  so a scene can never appear before the transition that hides it. */
+    private Page shownPage;
     private String lastViewMatchId;
     private long lastViewTick = Long.MIN_VALUE;
     private final ViewInterpolator interpolator = new ViewInterpolator(INTERP_WINDOW_MS);
@@ -518,7 +518,7 @@ public final class LightChaseApp extends ApplicationAdapter {
 
     private boolean tap(Vector2 p, int pointer) {
         if (fadePhase != 0) return true;   // the screen is covered
-        Page page = page();
+        Page page = shownPage == null ? page() : shownPage;
 
         if (page == Page.CONNECT) {
             float cw3 = connectColumn(ui.getWorldWidth());
@@ -673,27 +673,16 @@ public final class LightChaseApp extends ApplicationAdapter {
             // leaving the button spinning forever.
             notice = "Quit was not acknowledged; the match is still running";
         }
-        Page page = page();
-        if (page != lastPage) {
-            // Every page change is covered by white: no page ever appears with a hard cut.
-            // If a press animation is still running, the cover waits for it so the player sees
-            // their own press finish before the scene changes.
-            if (fadePhase == 0 && lastPage != null) {
-                if (washing()) coverPending = true;
-                else coverNow();
-            }
-            // Coming back from a match: the role is not a property of the room any more than it is
-            // of the player, so the lobby asks again, exactly like the first time.
-            if (page == Page.LOBBY && lastPage != Page.LOBBY) {
-                selectedRole = null;
-                suppressRoomRole = true;
-            }
-            String summary = quit.takeSummary();
-            notice = summary == null ? "" : summary;
-            touch.clear();
-            lastPage = page;
+        Page target = page();
+        if (shownPage == null) {
+            shownPage = target;                       // first frame: there is nothing to hide
+        } else if (target != shownPage && fadePhase == 0 && !washing()) {
+            // The room moved on. Turn the screen white *while the old page is still the one on
+            // screen*; the new page is only adopted once the cover is opaque. Waiting for a press
+            // animation first is what keeps "wash, then white" in that order.
+            coverNow();
         }
-        boolean inMatch = page == Page.MATCH;
+        boolean inMatch = shownPage == Page.MATCH;
         gateway.submitInput(inMatch ? touch.frame() : InputFrame.ZERO);
         if (gateway instanceof FakeGateway) ((FakeGateway) gateway).advance(Gdx.graphics.getDeltaTime());
 
@@ -703,9 +692,9 @@ public final class LightChaseApp extends ApplicationAdapter {
         interpolator.sample(System.nanoTime() / 1_000_000L);
         if (inMatch) worldRenderer.renderWorld(view, interpolator);
         updateLobby(Gdx.graphics.getDeltaTime());
-        drawUi(page);
+        drawUi(shownPage);
         if (inMatch) worldRenderer.renderMinimap(view, interpolator);
-        drawText(page);
+        drawText(shownPage);
     }
 
     private void drawUi(Page page) {
@@ -843,13 +832,6 @@ public final class LightChaseApp extends ApplicationAdapter {
             default: break;
         }
 
-        // The cover is one layer for the whole app: every page change is hidden behind it.
-        float cover = fadeCover();
-        if (cover > 0.001f) {
-            uiRound.rect(batch, new Color(1f, 1f, 1f, cover), 0f, 0f,
-                    ui.getWorldWidth(), UiTheme.H);
-        }
-
         if (!errorText.isEmpty()) {
             String line = "ERROR  " + errorText;
             float x = 30f;
@@ -858,6 +840,14 @@ public final class LightChaseApp extends ApplicationAdapter {
         } else if (!notice.isEmpty()) {
             UiDraw.text(batch, fonts.mono, notice, 30f, 720f - 60f - UiDraw.capHeight(fonts.mono),
                     UiTheme.TEXT_SOFT, 1.5f);
+        }
+
+        // The cover goes last, on top of everything including the notice line: nothing may show
+        // through the white while a scene changes.
+        float cover = fadeCover();
+        if (cover > 0.001f) {
+            uiRound.rect(batch, new Color(1f, 1f, 1f, cover), 0f, 0f,
+                    ui.getWorldWidth(), UiTheme.H);
         }
         batch.end();
     }
@@ -1498,6 +1488,22 @@ public final class LightChaseApp extends ApplicationAdapter {
         fadeT = 0f;
     }
 
+    /** Swaps in the page the room has been asking for; called only while the screen is white. */
+    private void adoptPage() {
+        Page target = page();
+        if (target == shownPage) return;
+        // Coming back from a match: the role is not a property of the room any more than it is of
+        // the player, so the lobby asks again, exactly like the first time.
+        if (target == Page.LOBBY) {
+            selectedRole = null;
+            suppressRoomRole = true;
+        }
+        String summary = quit.takeSummary();
+        notice = summary == null ? "" : summary;
+        touch.clear();
+        shownPage = target;
+    }
+
     /**
      * True while a press is in flight, in either direction. The white cover waits for the whole
      * press - up and back down - so a scene change can never cut a button off mid-animation.
@@ -1515,6 +1521,7 @@ public final class LightChaseApp extends ApplicationAdapter {
             case 2:
                 fadeT += dt / 0.15f;
                 if (fadeT >= 1f) {
+                    adoptPage();
                     fadePhase = 3;
                     fadeT = 0f;
                 }
@@ -1544,10 +1551,6 @@ public final class LightChaseApp extends ApplicationAdapter {
     private void updateLobby(float dt) {
 
         updateTransition(dt);
-        if (coverPending && !washing()) {
-            coverPending = false;
-            coverNow();
-        }
         readyReveal = UiAnim.approach(readyReveal, selectedRole == null ? 0f : 1f, dt, 4.5f);
         for (int i = 0; i < wash.length; i++) {
             if (washing[i]) {
