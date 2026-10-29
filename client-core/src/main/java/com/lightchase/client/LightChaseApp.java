@@ -51,6 +51,10 @@ public final class LightChaseApp extends ApplicationAdapter {
     private static final float ICON_R = 30f;
     private static final float BOX_H = 76f;
 
+    /** A press washes the slab white in this long, then falls back navy in the same time. */
+    private static final float WASH_UP = 0.15f;
+    private static final float WASH_DOWN = 0.15f;
+
     // Layout shared by the non-lobby pages.
     private static final float PAGE_KICKER = 136f;
     private static final float CONNECT_RULE1 = 176f;
@@ -134,6 +138,9 @@ public final class LightChaseApp extends ApplicationAdapter {
     /** Button wash states: 0 = CONNECT, 1 = BACK TO LOBBY. */
     private final float[] wash = new float[2];
     private final boolean[] washing = new boolean[2];
+    /** Second half of a press: the slab is falling back from white to navy. */
+    private final boolean[] returning = new boolean[2];
+    private boolean readyReturning;
     private int pulseId = -1;
     private float pulseT;
     private long editedAtMs;
@@ -1491,11 +1498,14 @@ public final class LightChaseApp extends ApplicationAdapter {
         fadeT = 0f;
     }
 
-    /** True while a press animation still owns the screen. */
+    /**
+     * True while a press is in flight, in either direction. The white cover waits for the whole
+     * press - up and back down - so a scene change can never cut a button off mid-animation.
+     */
     private boolean washing() {
-        if (readyQueued) return true;
-        for (boolean w : washing) {
-            if (w) return true;
+        if (readyQueued || readyReturning) return true;
+        for (int i = 0; i < washing.length; i++) {
+            if (washing[i] || returning[i]) return true;
         }
         return false;
     }
@@ -1540,19 +1550,26 @@ public final class LightChaseApp extends ApplicationAdapter {
         }
         readyReveal = UiAnim.approach(readyReveal, selectedRole == null ? 0f : 1f, dt, 4.5f);
         for (int i = 0; i < wash.length; i++) {
-            if (!washing[i]) continue;
-            wash[i] = Math.min(1f, wash[i] + dt / 0.35f);
-            if (wash[i] >= 1f) {
-                // The wash is a local acknowledgement, nothing more: it stops here and the request
-                // goes out. Whether the screen turns white depends on the room answering, which in
-                // a real match may need the other player too.
-                washing[i] = false;
-                wash[i] = 0f;
-                if (i == 0) {
-                    connect();
-                } else {
-                    touch.clear();
-                    gateway.returnToLobby();
+            if (washing[i]) {
+                wash[i] = Math.min(1f, wash[i] + dt / WASH_UP);
+                if (wash[i] >= 1f) {
+                    // Reaching white sends the request. The button then falls back to navy on its
+                    // own; that return trip is the wash played backwards, and the room may answer
+                    // and cover the screen while it runs.
+                    washing[i] = false;
+                    returning[i] = true;
+                    if (i == 0) {
+                        connect();
+                    } else {
+                        touch.clear();
+                        gateway.returnToLobby();
+                    }
+                }
+            } else if (returning[i]) {
+                wash[i] = Math.max(0f, wash[i] - dt / WASH_DOWN);
+                if (wash[i] <= 0f) {
+                    wash[i] = 0f;
+                    returning[i] = false;
                 }
             }
         }
@@ -1630,13 +1647,19 @@ public final class LightChaseApp extends ApplicationAdapter {
         }
 
         if (readyQueued) {
-            readyPress = Math.min(1f, readyPress + dt / 0.35f);
+            readyPress = Math.min(1f, readyPress + dt / WASH_UP);
             if (readyPress >= 1f) {
                 readyQueued = false;
-                readyPress = 0f;   // same reason as the washes: never come back pre-whitened
+                readyReturning = true;
                 if (!pending("SET_READY")) gateway.setReady(!isSelfReady());
             }
-        } else if (fadePhase == 0) {
+        } else if (readyReturning) {
+            readyPress = Math.max(0f, readyPress - dt / WASH_DOWN);
+            if (readyPress <= 0f) {
+                readyPress = 0f;
+                readyReturning = false;
+            }
+        } else {
             readyPress = UiAnim.approach(readyPress, 0f, dt, 6f);
         }
     }
