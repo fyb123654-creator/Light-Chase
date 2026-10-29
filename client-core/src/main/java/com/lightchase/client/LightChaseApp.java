@@ -127,6 +127,8 @@ public final class LightChaseApp extends ApplicationAdapter {
     /** Which secondary action is mid-pulse, and how far along. */
     /** Set when the lobby must show "nothing chosen" until the player taps a role. */
     private boolean suppressRoomRole = true;
+    /** 0..1: how far the READY button has faded in (it only exists once a role is picked). */
+    private float readyReveal;
     /** Button wash states: 0 = CONNECT, 1 = BACK TO LOBBY. */
     private final float[] wash = new float[2];
     private final boolean[] washing = new boolean[2];
@@ -574,13 +576,7 @@ public final class LightChaseApp extends ApplicationAdapter {
                 recordPress("ready");
                 // The click starts the animation; the request goes out when it lands, so the
                 // button reacts before the network does.
-                if (selectedRole == null) {
-                    // Nothing chosen yet: pick the free role instead of doing nothing, so the tap
-                    // always has a visible consequence.
-                    suppressRoomRole = false;
-                    gateway.selectRole(Role.THIEF == selectedRole ? Role.POLICE : Role.THIEF);
-                    return true;
-                }
+                if (selectedRole == null || readyReveal < 0.5f) return true;
                 if (!pending("SET_READY") && !readyQueued) {
                     readyQueued = true;
                     readyPress = 0f;
@@ -935,27 +931,31 @@ public final class LightChaseApp extends ApplicationAdapter {
                 selectedRole == null || other == null || other.role == null ? "-" : other.role.name());
 
         // ---- primary action ---------------------------------------------------------------
+        // The action only exists once a role has been chosen; before that it would be a button
+        // that cannot do its job, so it is simply not on screen.
         boolean busy = pending("SET_READY");
-        // Pressing fades the whole control towards white, so it dissolves into the white
-        // transition instead of cutting to it. Same length as the POLICE switch.
+        float reveal = UiAnim.smooth(readyReveal);
         float pressLit = UiAnim.smooth(readyPress);
         float bw = CTA_W;
         float bh = CTA_H;
         float bx = m;
-        float btop = CTA_TOP + bs;
-        scratchColor.set(busy ? UiTheme.LINE : READY_BLUE);
-        scratchColor.lerp(Color.WHITE, pressLit);
-        uiRound.fill(batch, scratchColor, bx, btop, bw, bh);
+        float btop = CTA_TOP + bs + (1f - reveal) * 10f;
+        if (reveal > 0.01f) {
+            scratchColor.set(busy ? UiTheme.LINE : READY_BLUE);
+            scratchColor.lerp(Color.WHITE, pressLit);
+            scratchColor.a = reveal;
+            uiRound.fill(batch, scratchColor, bx, btop, bw, bh);
 
-        String cta = busy ? "WAITING..." : (isSelfReady() ? "CANCEL READY"
-                : (selectedRole == null ? "PICK A ROLE" : "READY"));
-        float cw = UiDraw.width(fonts.cta, cta, 1.5f);
-        float ctop = btop + (bh - UiDraw.capHeight(fonts.cta)) / 2f;
-        // The label stays white: as the slab whitens the two converge and the button washes
-        // out into the incoming white screen rather than switching colour.
-        UiDraw.text(batch, fonts.cta, cta, bx + (bw - cw) / 2f, ctop,
-                busy ? LOBBY_GREY : Color.WHITE, 1.5f);
-        ctop = CTA_TOP + bs + (CTA_H - UiDraw.capHeight(fonts.cta)) / 2f;
+            String cta = busy ? "WAITING..." : (isSelfReady() ? "CANCEL READY" : "READY");
+            float cw = UiDraw.width(fonts.cta, cta, 1.5f);
+            float ctop2 = btop + (bh - UiDraw.capHeight(fonts.cta)) / 2f;
+            // The label stays white: as the slab whitens the two converge and the button washes
+            // out into the incoming white screen rather than switching colour.
+            scratchColor.set(busy ? LOBBY_GREY : Color.WHITE);
+            scratchColor.a = reveal;
+            UiDraw.text(batch, fonts.cta, cta, bx + (bw - cw) / 2f, ctop2, scratchColor, 1.5f);
+        }
+        float ctop = CTA_TOP + bs + (CTA_H - UiDraw.capHeight(fonts.cta)) / 2f;
 
         // Same line as READY, centred under the OPPONENT chip.
         float leaveTop = ctop + (UiDraw.capHeight(fonts.cta) - UiDraw.capHeight(fonts.mono)) / 2f;
@@ -1530,11 +1530,15 @@ public final class LightChaseApp extends ApplicationAdapter {
     private void updateLobby(float dt) {
 
         updateTransition(dt);
+        readyReveal = UiAnim.approach(readyReveal, selectedRole == null ? 0f : 1f, dt, 4.5f);
         for (int i = 0; i < wash.length; i++) {
             if (!washing[i]) continue;
             wash[i] = Math.min(1f, wash[i] + dt / 0.35f);
             if (wash[i] >= 1f) {
+                // The button goes back to navy at once: the white cover is already opaque, so the
+                // reset is invisible here and the button is normal again next time it is shown.
                 washing[i] = false;
+                wash[i] = 0f;
                 if (i == 0) startTransition(this::connect);
                 else startTransition(() -> { touch.clear(); gateway.returnToLobby(); });
             }
@@ -1618,6 +1622,7 @@ public final class LightChaseApp extends ApplicationAdapter {
             readyPress = Math.min(1f, readyPress + dt / 0.35f);
             if (readyPress >= 1f) {
                 readyQueued = false;
+                readyPress = 0f;   // same reason as the washes: never come back pre-whitened
                 startTransition(() -> {
                     if (!pending("SET_READY")) gateway.setReady(!isSelfReady());
                 });
