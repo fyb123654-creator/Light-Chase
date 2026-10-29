@@ -1355,61 +1355,46 @@ public final class LightChaseApp extends ApplicationAdapter {
      */
     private void lobbyPoliceIcon(ShapeRenderer shapes, float cx, float cy) {
         float sel = UiAnim.smooth(selectPolice);
-        // Unselected: the lamp is off and the cap simply faces the role name. Selected: the lamp
-        // comes on and the head sweeps side to side, looking around.
-        float sweep = UiAnim.sway(lobbyClock, 0.9f) * 0.20f * sel;
-        float angle = (float) Math.PI + sweep;
+        // Two resting poses. Not chosen: the head is turned towards the role name it belongs to,
+        // sweeping gently around it, with the lamp off. Chosen: it relaxes and looks around away
+        // from the text - the beam must never wash over "POLICE".
+        float base = UiAnim.lerp((float) Math.PI, 0.12f, sel);
+        float sway = UiAnim.sway(lobbyClock, 0.75f) * (0.16f + 0.12f * sel);
+        float angle = base + sway;
 
-        float lx = cx + (float) Math.cos(angle) * (ICON_R - 1f);
-        float ly = cy + (float) Math.sin(angle) * (ICON_R - 1f);
+        float c = (float) Math.cos(angle);
+        float s = (float) Math.sin(angle);
+        float lx = cx + c * (ICON_R - 2f);
+        float ly = cy + s * (ICON_R - 2f);
 
         if (beamOn > 0.01f) {
             beamToText(shapes, lx, ly, angle, beamOn);
         }
 
-        // Rim: the same diameter as the thief's, with a bite taken out where the flashlight is,
-        // so the barrel can stick through without the two shapes cutting into each other.
-        policeRim(shapes, cx, cy, ICON_R, angle, 0.30f);
+        // Same construction as the thief: a soft halo, a solid white disc, then the body on top.
+        // The rim is whatever the body does not cover, so it hugs it with no gap.
+        shapes.setColor(CAP_DARK.r, CAP_DARK.g, CAP_DARK.b, 0.20f);
+        shapes.circle(cx, cy, ICON_R + 4f, 32);
+        shapes.setColor(1f, 1f, 1f, 1f);
+        shapes.circle(cx, cy, ICON_R, 32);
 
-        // barrel and lens, drawn after the rim so they sit on top of the gap
-        float bx = cx + (float) Math.cos(angle) * 5f;
-        float by = cy + (float) Math.sin(angle) * 5f;
+        policeCap(shapes, cx, cy, angle);
+
+        // The lamp is part of the silhouette, not an outline: it is drawn after the rim and simply
+        // overlaps it, the way the thief's scarf overlaps its hood.
+        float bx = cx + c * 6f;
+        float by = cy + s * 6f;
         shapes.setColor(0.30f, 0.33f, 0.38f, 1f);
         shapes.rectLine(bx, by, lx, ly, 12f);
         shapes.setColor(0.64f, 0.67f, 0.72f, 1f);
         shapes.circle(lx, ly, 7.5f, 18);
         shapes.setColor(1f, 1f, 0.96f, 0.20f + 0.80f * beamOn);
         shapes.circle(lx, ly, 4.6f, 16);
-
-        policeCap(shapes, cx, cy);
-    }
-
-    /**
-     * White ring of the given radius with a gap centred on {@code gapAngle}. Drawn as overlapping
-     * capsules rather than a full circle so the gap is a real bite, not an overlay.
-     */
-    private void policeRim(ShapeRenderer shapes, float cx, float cy, float r, float gapAngle,
-                           float gap) {
-        float thickness = 3.4f;
-        int steps = 72;
-        float from = gapAngle + gap;
-        float to = gapAngle + (float) Math.PI * 2f - gap;
-        float px = 0f;
-        float py = 0f;
-        shapes.setColor(1f, 1f, 1f, 1f);
-        for (int i = 0; i <= steps; i++) {
-            float a = from + (to - from) * i / steps;
-            float x = cx + (float) Math.cos(a) * r;
-            float y = cy + (float) Math.sin(a) * r;
-            if (i > 0) shapes.rectLine(px, py, x, y, thickness);
-            px = x;
-            py = y;
-        }
     }
 
     /** The beam: bright at the lens, fading out along its length, tapering to a soft end. */
     private void beamToText(ShapeRenderer shapes, float lx, float ly, float angle, float on) {
-        float full = 258f;
+        float full = 232f;
         float reach = full * on;
         float half = 0.30f;
         float nearAlpha = 0.90f * on;
@@ -1426,15 +1411,14 @@ public final class LightChaseApp extends ApplicationAdapter {
     }
 
     /** Cap seen from above: crown, peak in front, badge on top. */
-    private void policeCap(ShapeRenderer shapes, float cx, float cy) {
-        final float r = ICON_R - 5f;          // leaves room for the rim outside it
+    private void policeCap(ShapeRenderer shapes, float cx, float cy, float angle) {
+        final float r = ICON_R - 3f;          // the white disc behind it becomes a 3-wide rim
 
-        shapes.setColor(CAP_DARK.r, CAP_DARK.g, CAP_DARK.b, 0.20f);
-        shapes.circle(cx, cy, r + 3f, 32);
-
-        // peak, straight in front of the crown (left) and short, so it does not stick out below
+        // peak: points the way the head is turned
+        float c = (float) Math.cos(angle);
+        float s = (float) Math.sin(angle);
         shapes.setColor(0.34f, 0.52f, 0.64f, 1f);
-        shapes.rectLine(cx - r * 0.92f, cy + 2f, cx + 3f, cy + 2f, 10f);
+        shapes.rectLine(cx + c * 2f, cy + s * 2f, cx + c * (r * 0.95f), cy + s * (r * 0.95f), 10f);
 
         shapes.setColor(CAP_BLUE);
         shapes.circle(cx, cy + 1f, r, 32);
