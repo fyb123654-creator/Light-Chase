@@ -125,6 +125,11 @@ public final class LightChaseApp extends ApplicationAdapter {
     /** Which connection field was just tapped, and when: the chip flashes so the tap lands. */
     private int editedChip = -1;
     /** Which secondary action is mid-pulse, and how far along. */
+    /** Set when the lobby must show "nothing chosen" until the player taps a role. */
+    private boolean suppressRoomRole = true;
+    /** Button wash states: 0 = CONNECT, 1 = BACK TO LOBBY. */
+    private final float[] wash = new float[2];
+    private final boolean[] washing = new boolean[2];
     private int pulseId = -1;
     private float pulseT;
     private long editedAtMs;
@@ -160,7 +165,8 @@ public final class LightChaseApp extends ApplicationAdapter {
     private FakeGateway.Scenario scenario = FakeGateway.Scenario.NORMAL;
     private boolean dialogOpen;
 
-    private Role selectedRole = Role.THIEF;
+    /** Null until the player (re)picks: the lobby always starts without a role. */
+    private Role selectedRole;
     private Page lastPage;
     private String lastViewMatchId;
     private long lastViewTick = Long.MIN_VALUE;
@@ -358,7 +364,8 @@ public final class LightChaseApp extends ApplicationAdapter {
                     touch.clear();
                 }
                 for (RoomPlayer p : s.players) {
-                    if (session != null && session.playerId.equals(p.playerId) && p.role != null) {
+                    if (!suppressRoomRole && session != null
+                            && session.playerId.equals(p.playerId) && p.role != null) {
                         selectedRole = p.role;
                     }
                 }
@@ -519,7 +526,7 @@ public final class LightChaseApp extends ApplicationAdapter {
                 edit("Room id", roomId, "DEMO", v -> roomId = v); return true;
             }
             float actY = UiTheme.yFromTop(CONNECT_ACTION_TOP, CTA_H);
-            if (inside(p, UiTheme.MARGIN, actY, CTA_W, CTA_H)) { startTransition(this::connect); return true; }
+            if (inside(p, UiTheme.MARGIN, actY, CTA_W, CTA_H)) { startWash(0); return true; }
             if (inside(p, scenarioX(ui.getWorldWidth()) - 12f, actY, 260f, CTA_H)) {
                 pulse(0);
                 FakeGateway.Scenario[] all = FakeGateway.Scenario.values();
@@ -553,11 +560,13 @@ public final class LightChaseApp extends ApplicationAdapter {
             // Boxes mirror the mockup: the whole role row is tappable, not just the name.
             if (inside(p, ROLE_CX - 200f, UiTheme.yFromTop(ROLE1_TOP - 8f, 108f), 420f, 108f)) {
                 recordPress("role-police");
+                suppressRoomRole = false;
                 if (!pending("SELECT_ROLE")) gateway.selectRole(Role.POLICE);
                 return true;
             }
             if (inside(p, ROLE_CX - 200f, UiTheme.yFromTop(ROLE2_TOP - 8f, 108f), 420f, 108f)) {
                 recordPress("role-thief");
+                suppressRoomRole = false;
                 if (!pending("SELECT_ROLE")) gateway.selectRole(Role.THIEF);
                 return true;
             }
@@ -565,6 +574,13 @@ public final class LightChaseApp extends ApplicationAdapter {
                 recordPress("ready");
                 // The click starts the animation; the request goes out when it lands, so the
                 // button reacts before the network does.
+                if (selectedRole == null) {
+                    // Nothing chosen yet: pick the free role instead of doing nothing, so the tap
+                    // always has a visible consequence.
+                    suppressRoomRole = false;
+                    gateway.selectRole(Role.THIEF == selectedRole ? Role.POLICE : Role.THIEF);
+                    return true;
+                }
                 if (!pending("SET_READY") && !readyQueued) {
                     readyQueued = true;
                     readyPress = 0f;
@@ -587,9 +603,7 @@ public final class LightChaseApp extends ApplicationAdapter {
         if (page == Page.RESULT) {
             if (inside(p, UiTheme.MARGIN, UiTheme.yFromTop(RESULT_ACTION_TOP + bottomShift(), CTA_H),
                     300f, CTA_H)) {
-                if (!pending("RETURN_LOBBY")) {
-                    startTransition(() -> { touch.clear(); gateway.returnToLobby(); });
-                }
+                if (!pending("RETURN_LOBBY")) startWash(1);
                 return true;
             }
             return true;
@@ -661,6 +675,12 @@ public final class LightChaseApp extends ApplicationAdapter {
             if (fadePhase == 0 && lastPage != null) {
                 fadePhase = 2;
                 fadeT = 0f;
+            }
+            // Coming back from a match: the role is not a property of the room any more than it is
+            // of the player, so the lobby asks again, exactly like the first time.
+            if (page == Page.LOBBY && lastPage != Page.LOBBY) {
+                selectedRole = null;
+                suppressRoomRole = true;
             }
             String summary = quit.takeSummary();
             notice = summary == null ? "" : summary;
@@ -859,7 +879,8 @@ public final class LightChaseApp extends ApplicationAdapter {
         chip(m + 2f * (colW + GRID_GAP), CONNECT_CHIP_TOP, colW, BOX_H, "ROOM", roomId,
                 editedChip == 2 && since < 700);
 
-        primaryButton(m, CONNECT_ACTION_TOP, CTA_W, CTA_H, "CONNECT", lanGatewayFactory != null);
+        primaryButton(m, CONNECT_ACTION_TOP, CTA_W, CTA_H, "CONNECT", lanGatewayFactory != null,
+                washOf(0));
         secondaryAction(scenarioX(w), actionTextTop(), scenarioLabel(), scenarioActive(), 0);
         secondaryAction(modeX(w), actionTextTop(), modeLabel(), mode == Mode.LAN, 1);
 
@@ -906,10 +927,12 @@ public final class LightChaseApp extends ApplicationAdapter {
         float boxW = (w - m - x0 - gap) / 2f;
         lobbyBox(0, x0, ROLE1_TOP, boxW, "ROOM", room.roomId);
         lobbyBox(1, x0 + boxW + gap, ROLE1_TOP, boxW, "MAP", room.mapId);
+        // Both chips follow the local choice: until the player picks, the room may still hold the
+        // role from the previous match, and echoing it would look like the choice was kept.
         lobbyBox(2, x0, ROLE2_TOP, boxW, "YOU",
-                self == null || self.role == null ? "-" : self.role.name());
+                selectedRole == null ? "-" : selectedRole.name());
         lobbyBox(3, x0 + boxW + gap, ROLE2_TOP, boxW, "OPPONENT",
-                other == null || other.role == null ? "-" : other.role.name());
+                selectedRole == null || other == null || other.role == null ? "-" : other.role.name());
 
         // ---- primary action ---------------------------------------------------------------
         boolean busy = pending("SET_READY");
@@ -924,7 +947,8 @@ public final class LightChaseApp extends ApplicationAdapter {
         scratchColor.lerp(Color.WHITE, pressLit);
         uiRound.fill(batch, scratchColor, bx, btop, bw, bh);
 
-        String cta = busy ? "WAITING..." : (isSelfReady() ? "CANCEL READY" : "READY");
+        String cta = busy ? "WAITING..." : (isSelfReady() ? "CANCEL READY"
+                : (selectedRole == null ? "PICK A ROLE" : "READY"));
         float cw = UiDraw.width(fonts.cta, cta, 1.5f);
         float ctop = btop + (bh - UiDraw.capHeight(fonts.cta)) / 2f;
         // The label stays white: as the slab whitens the two converge and the button washes
@@ -1008,6 +1032,17 @@ public final class LightChaseApp extends ApplicationAdapter {
         return (float) Math.sin(Math.PI * Math.min(1f, pulseT / 0.45f));
     }
 
+    private void startWash(int id) {
+        if (washing[id]) return;
+        washing[id] = true;
+        wash[id] = 0f;
+    }
+
+    /** 0..1 wash strength for a button; 1 means it has gone fully white. */
+    private float washOf(int id) {
+        return UiAnim.smooth(Math.min(1f, wash[id]));
+    }
+
     private void pulse(int id) {
         pulseId = id;
         pulseT = 0f;
@@ -1050,7 +1085,15 @@ public final class LightChaseApp extends ApplicationAdapter {
 
     /** Deep navy slab with a white label, the same primary as the lobby. */
     private void primaryButton(float x, float top, float w, float h, String label, boolean enabled) {
-        uiRound.fill(batch, enabled ? READY_BLUE : UiTheme.LINE, x, top, w, h);
+        primaryButton(x, top, w, h, label, enabled, 0f);
+    }
+
+    /** Deep navy slab that washes to white while it is being pressed, like the lobby's READY. */
+    private void primaryButton(float x, float top, float w, float h, String label, boolean enabled,
+                               float lit) {
+        scratchColor.set(enabled ? READY_BLUE : UiTheme.LINE);
+        scratchColor.lerp(Color.WHITE, lit);
+        uiRound.fill(batch, scratchColor, x, top, w, h);
         float cw = UiDraw.width(fonts.cta, label, 1.5f);
         float top2 = top + (h - UiDraw.capHeight(fonts.cta)) / 2f;
         UiDraw.text(batch, fonts.cta, label, x + (w - cw) / 2f, top2,
@@ -1487,6 +1530,15 @@ public final class LightChaseApp extends ApplicationAdapter {
     private void updateLobby(float dt) {
 
         updateTransition(dt);
+        for (int i = 0; i < wash.length; i++) {
+            if (!washing[i]) continue;
+            wash[i] = Math.min(1f, wash[i] + dt / 0.35f);
+            if (wash[i] >= 1f) {
+                washing[i] = false;
+                if (i == 0) startTransition(this::connect);
+                else startTransition(() -> { touch.clear(); gateway.returnToLobby(); });
+            }
+        }
         if (pulseId >= 0) {
             pulseT += dt;
             if (pulseT > 0.50f) pulseId = -1;
@@ -1743,7 +1795,7 @@ public final class LightChaseApp extends ApplicationAdapter {
                 UiTheme.TEXT);
 
         primaryButton(m, RESULT_ACTION_TOP + bs, 300f, CTA_H, "BACK TO LOBBY",
-                !pending("RETURN_LOBBY"));
+                !pending("RETURN_LOBBY"), washOf(1));
 
         UiDraw.text(batch, fonts.mono,
                 "RESULT " + result.resultId + "   MATCH " + result.matchId,
