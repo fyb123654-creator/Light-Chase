@@ -1354,24 +1354,31 @@ public final class LightChaseApp extends ApplicationAdapter {
      * beam is strongest at the lens.
      */
     private void lobbyPoliceIcon(ShapeRenderer shapes, float cx, float cy) {
-        // Two resting poses. Not chosen: the head is turned towards the role name, sweeping gently
-        // around it, lamp off. Chosen: it turns away first and only then switches the lamp on.
+        // Not chosen: the head is turned towards the role name and the lamp is off. Chosen: it
+        // turns away first, then the torch comes on with exactly the drawing the idle state used
+        // to have - a wide, gentle sway and a short soft cone.
         float facing = UiAnim.smooth(turn);
-        float base = UiAnim.lerp((float) Math.PI, 0.12f, facing);
-        float sway = UiAnim.sway(lobbyClock, 0.75f) * (0.16f + 0.12f * facing);
-        float angle = base + sway;
+        float base = UiAnim.lerp((float) Math.PI, 0f, facing);
+        float wander = UiAnim.sway(lobbyClock, 0.9f) * 0.55f * facing;
+        float angle = base + wander;
 
         float c = (float) Math.cos(angle);
         float s = (float) Math.sin(angle);
-        float lx = cx + c * (ICON_R - 2f);
-        float ly = cy + s * (ICON_R - 2f);
+        float lx = cx + c * (ICON_R + 2f);
+        float ly = cy + s * (ICON_R + 2f);
 
+        // The idle cone, unchanged: 120 long, 45% at the lens, gone at the far end.
         if (beamOn > 0.01f) {
-            beamToText(shapes, lx, ly, angle, beamOn);
+            float reach = 120f * beamOn;
+            float near = 0.45f * beamOn;
+            gradTri(shapes, lx, ly, near,
+                    lx + (float) Math.cos(angle - 0.26f) * reach,
+                    ly + (float) Math.sin(angle - 0.26f) * reach, 0.02f * beamOn,
+                    lx + (float) Math.cos(angle + 0.26f) * reach,
+                    ly + (float) Math.sin(angle + 0.26f) * reach, 0.02f * beamOn);
         }
 
-        // Same construction as the thief: a soft halo, a solid white disc, then the body on top.
-        // The rim is whatever the body does not cover, so it hugs it with no gap.
+        // Rim: a solid white disc with the cap on top, so it hugs it with no gap.
         shapes.setColor(CAP_DARK.r, CAP_DARK.g, CAP_DARK.b, 0.20f);
         shapes.circle(cx, cy, ICON_R + 4f, 32);
         shapes.setColor(1f, 1f, 1f, 1f);
@@ -1379,17 +1386,16 @@ public final class LightChaseApp extends ApplicationAdapter {
 
         policeCap(shapes, cx, cy, angle);
 
-        // The lamp is a smooth bump, not a barrel: a rounded neck and one lens, drawn after the rim
-        // so it simply overlaps it the way the thief's scarf overlaps its hood.
-        float nx = cx + c * (ICON_R - 5f);
-        float ny = cy + s * (ICON_R - 5f);
+        // The old lamp: short barrel, one lens, one hot centre - drawn after the rim so it overlaps
+        // it, the way the thief's scarf overlaps its hood.
+        float bx = cx + c * 6f;
+        float by = cy + s * 6f;
         shapes.setColor(0.30f, 0.33f, 0.38f, 1f);
-        shapes.rectLine(nx, ny, lx, ly, 7f);
-        shapes.circle(nx, ny, 3.5f, 16);
+        shapes.rectLine(bx, by, lx, ly, 13f);
         shapes.setColor(0.64f, 0.67f, 0.72f, 1f);
-        shapes.circle(lx, ly, 6.2f, 20);
-        shapes.setColor(1f, 1f, 0.96f, 0.18f + 0.82f * beamOn);
-        shapes.circle(lx, ly, 3.8f, 16);
+        shapes.circle(lx, ly, 8f, 18);
+        shapes.setColor(1f, 1f, 0.96f, 0.20f + 0.80f * beamOn);
+        shapes.circle(lx, ly, 5f, 16);
     }
 
     /** The beam: bright at the lens, fading out along its length, tapering to a soft end. */
