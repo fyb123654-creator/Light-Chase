@@ -139,37 +139,68 @@ final class WorldRenderer {
             }
         }
         if (interpolator.opponentVisible()) {
-            float ox = (float) interpolator.opponentX();
-            float oy = (float) interpolator.opponentY();
-            shapes.setColor(FOE.r, FOE.g, FOE.b, 0.22f);
-            shapes.circle(ox, oy, 0.46f, 32);
-            shapes.setColor(FOE);
-            shapes.circle(ox, oy, 0.26f, 32);
-            shapes.setColor(INK);
-            shapes.circle(ox, oy, 0.16f, 24);
+            Role theirs = view.role == Role.THIEF ? Role.POLICE : Role.THIEF;
+            drawBadge((float) interpolator.opponentX(), (float) interpolator.opponentY(), theirs,
+                    Math.PI / 2.0, 0.22f);
             if (interpolator.opponentCarrying()) {
                 // Contract §7: carrying is the only carry-related fact the police gets.
                 shapes.setColor(MATERIAL);
-                shapes.circle(ox + 0.34f, oy + 0.34f, 0.11f, 14);
+                shapes.circle((float) interpolator.opponentX() + 0.30f,
+                        (float) interpolator.opponentY() + 0.30f, 0.11f, 14);
             }
         }
-        float sx = (float) interpolator.selfX();
-        float sy = (float) interpolator.selfY();
-        Color mine = view.role == Role.THIEF ? SELF_THIEF : SELF_POLICE;
-        shapes.setColor(mine.r, mine.g, mine.b, 0.20f);
-        shapes.circle(sx, sy, 0.42f, 32);
-        shapes.setColor(mine);
-        shapes.circle(sx, sy, 0.26f, 32);
-        shapes.setColor(INK);
-        shapes.circle(sx, sy, 0.15f, 24);
-        // A heading tick: the beam already shows the police direction, but the thief needs one too.
-        double heading = view.self.headingRad;
-        float hx = (float) Math.cos(heading);
-        float hy = (float) Math.sin(heading);
-        shapes.setColor(mine);
-        shapes.triangle(sx + hx * 0.44f, sy + hy * 0.44f,
-                sx + hx * 0.26f - hy * 0.10f, sy + hy * 0.26f + hx * 0.10f,
-                sx + hx * 0.26f + hy * 0.10f, sy + hy * 0.26f - hx * 0.10f);
+        drawBadge((float) interpolator.selfX(), (float) interpolator.selfY(), view.role,
+                view.self.headingRad, 0.20f);
+    }
+
+    /**
+     * One actor, drawn as a small version of the lobby icon: the police is a cap with a lens, the
+     * thief is a dark hood with a bright rim, a headband, and two scarf tails. Both point along
+     * {@code heading} so movement direction is readable at a glance.
+     */
+    private void drawBadge(float x, float y, Role role, double heading, float halo) {
+        float c = (float) Math.cos(heading);
+        float s = (float) Math.sin(heading);
+        float px = -s;
+        float py = c;
+        Color tint = role == Role.THIEF ? SELF_THIEF : SELF_POLICE;
+
+        shapes.setColor(tint.r, tint.g, tint.b, halo);
+        shapes.circle(x, y, 0.46f, 28);
+
+        if (role == Role.POLICE) {
+            // Brim: a wedge in front of the cap, the menu icon's most recognisable shape.
+            shapes.setColor(0.24f, 0.44f, 0.62f, 1f);
+            shapes.triangle(x + c * 0.10f + px * 0.19f, y + s * 0.10f + py * 0.19f,
+                    x + c * 0.10f - px * 0.19f, y + s * 0.10f - py * 0.19f,
+                    x + c * 0.56f, y + s * 0.56f);
+            shapes.setColor(SELF_POLICE);
+            shapes.circle(x, y, 0.30f, 28);
+            shapes.setColor(0.20f, 0.42f, 0.62f, 1f);
+            shapes.circle(x, y, 0.21f, 24);
+            shapes.setColor(0.88f, 0.95f, 1f, 1f);
+            shapes.circle(x, y, 0.11f, 20);
+            shapes.setColor(1f, 1f, 1f, 1f);
+            shapes.circle(x, y, 0.05f, 14);
+        } else {
+            // Scarf tails stream out behind the hood.
+            shapes.setColor(SELF_THIEF);
+            shapes.triangle(x - c * 0.12f + px * 0.13f, y - s * 0.12f + py * 0.13f,
+                    x - c * 0.12f - px * 0.06f, y - s * 0.12f - py * 0.06f,
+                    x - c * 0.54f + px * 0.05f, y - s * 0.54f + py * 0.05f);
+            shapes.triangle(x - c * 0.12f - px * 0.13f, y - s * 0.12f - py * 0.13f,
+                    x - c * 0.12f + px * 0.06f, y - s * 0.12f + py * 0.06f,
+                    x - c * 0.46f - px * 0.12f, y - s * 0.46f - py * 0.12f);
+            // Hood with its bright rim.
+            shapes.setColor(0.86f, 0.86f, 0.90f, 1f);
+            shapes.circle(x, y, 0.31f, 28);
+            shapes.setColor(0.10f, 0.10f, 0.12f, 1f);
+            shapes.circle(x, y, 0.27f, 28);
+            // Headband across the brow.
+            shapes.setColor(SELF_THIEF);
+            shapes.rectLine(x - px * 0.20f + c * 0.08f, y - py * 0.20f + s * 0.08f,
+                    x + px * 0.20f + c * 0.08f, y + py * 0.20f + s * 0.08f, 0.07f);
+        }
     }
 
     /** The police cone: three nested passes give it depth without a real gradient. */

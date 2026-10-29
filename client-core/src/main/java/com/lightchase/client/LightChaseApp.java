@@ -1611,10 +1611,6 @@ public final class LightChaseApp extends ApplicationAdapter {
         kv(m + 3f * (col + GRID_GAP), 30f, "EXITS", exits,
                 UiTheme.TEXT);
 
-        String roleLabel = selectedRole == null ? "" : selectedRole.name();
-        UiDraw.text(batch, fonts.mono, roleLabel,
-                w - m - UiDraw.width(fonts.mono, roleLabel, 1.5f), 30f,
-                roleColor(roleLabel), 1.5f);
 
         if (!ConnectionStates.CONNECTED.equals(connectionState)) {
             UiDraw.text(batch, fonts.mono,
@@ -1706,8 +1702,7 @@ public final class LightChaseApp extends ApplicationAdapter {
 
         // Who was who, on the chip grid.
         float colW = (w - 2 * m - GRID_GAP) / 2f;
-        chip(m, 300f, colW, BOX_H, "YOU", selectedRole == null ? "-" : selectedRole.name());
-        chip(m + colW + GRID_GAP, 300f, colW, BOX_H, "WINNER",
+        chip(m, 300f, w - 2 * m, BOX_H, "WINNER",
                 result.winner == null ? "NONE" : result.winner.name());
 
         // Facts, evenly spaced.
