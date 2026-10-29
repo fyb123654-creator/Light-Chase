@@ -1364,8 +1364,8 @@ public final class LightChaseApp extends ApplicationAdapter {
 
         float c = (float) Math.cos(angle);
         float s = (float) Math.sin(angle);
-        float lx = cx + c * (ICON_R + 2f);
-        float ly = cy + s * (ICON_R + 2f);
+        float lx = cx + c * (ICON_R - 2f);
+        float ly = cy + s * (ICON_R - 2f);
 
         // The idle cone, unchanged: 120 long, 45% at the lens, gone at the far end.
         if (beamOn > 0.01f) {
@@ -1386,16 +1386,17 @@ public final class LightChaseApp extends ApplicationAdapter {
 
         policeCap(shapes, cx, cy, angle);
 
-        // The old lamp: short barrel, one lens, one hot centre - drawn after the rim so it overlaps
-        // it, the way the thief's scarf overlaps its hood.
-        float bx = cx + c * 6f;
-        float by = cy + s * 6f;
+        // The lamp is the small rounded protrusion: a short neck with a round joint at its root,
+        // one lens, one hot centre. Drawn after the rim so it simply overlaps it.
+        float nx = cx + c * (ICON_R - 5f);
+        float ny = cy + s * (ICON_R - 5f);
         shapes.setColor(0.30f, 0.33f, 0.38f, 1f);
-        shapes.rectLine(bx, by, lx, ly, 13f);
+        shapes.rectLine(nx, ny, lx, ly, 7f);
+        shapes.circle(nx, ny, 3.5f, 16);
         shapes.setColor(0.64f, 0.67f, 0.72f, 1f);
-        shapes.circle(lx, ly, 8f, 18);
-        shapes.setColor(1f, 1f, 0.96f, 0.20f + 0.80f * beamOn);
-        shapes.circle(lx, ly, 5f, 16);
+        shapes.circle(lx, ly, 6.2f, 20);
+        shapes.setColor(1f, 1f, 0.96f, 0.18f + 0.82f * beamOn);
+        shapes.circle(lx, ly, 3.8f, 16);
     }
 
     /** The beam: bright at the lens, fading out along its length, tapering to a soft end. */
