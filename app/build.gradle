@@ -12,7 +12,7 @@ android {
     }
     compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
     sourceSets.main {
-        assets.srcDirs = ['../game-data/src/main/resources', layout.buildDirectory.dir('generated/notices').get().asFile]
+        assets.srcDirs = ['src/main/assets', '../game-data/src/main/resources', layout.buildDirectory.dir('generated/notices').get().asFile]
         jniLibs.srcDirs = [layout.buildDirectory.dir('generated/natives').get().asFile]
     }
     packaging { jniLibs { useLegacyPackaging = false } }
@@ -24,6 +24,8 @@ dependencies {
     implementation 'com.badlogicgames.gdx:gdx-backend-android:1.14.2'
     natives 'com.badlogicgames.gdx:gdx-platform:1.14.2:natives-arm64-v8a'
     natives 'com.badlogicgames.gdx:gdx-platform:1.14.2:natives-x86_64'
+    natives 'com.badlogicgames.gdx:gdx-freetype-platform:1.14.2:natives-arm64-v8a'
+    natives 'com.badlogicgames.gdx:gdx-freetype-platform:1.14.2:natives-x86_64'
 }
 tasks.register('extractNatives') {
     inputs.files configurations.natives

@@ -7,10 +7,12 @@ import com.badlogic.gdx.InputAdapter;
 import com.badlogic.gdx.graphics.Color;
 import com.badlogic.gdx.graphics.GL20;
 import com.badlogic.gdx.graphics.OrthographicCamera;
+import com.badlogic.gdx.graphics.g2d.Batch;
 import com.badlogic.gdx.graphics.g2d.BitmapFont;
 import com.badlogic.gdx.graphics.g2d.SpriteBatch;
 import com.badlogic.gdx.graphics.glutils.ShapeRenderer;
 import com.badlogic.gdx.math.Vector2;
+import com.badlogic.gdx.utils.viewport.ExtendViewport;
 import com.badlogic.gdx.utils.viewport.FitViewport;
 import com.lightchase.contracts.*;
 import com.lightchase.data.DataFiles;
@@ -33,6 +35,47 @@ public final class LightChaseApp extends ApplicationAdapter {
     private static final long INTERP_WINDOW_MS = 100;
 
     /** Quit button on the match screen. Kept clear of the stick and the action buttons. */
+    // Lobby geometry, shared by the shape pass, the text pass and the hit boxes.
+    private static final float ROLE_CX = 250f;
+    private static final float ROLE1_TOP = 234f;
+    private static final float ROLE2_TOP = 397f;
+    private static final float RULE1_TOP = 176f;
+    private static final float RULE2_TOP = 528f;
+    /** One gap used everywhere: above the boxes, between them, and below them. */
+    private static final float GRID_GAP = 44f;
+    private static final float RULE_H = 8f;
+    private static final float CTA_TOP = 560f;
+    private static final float CTA_W = 228f;
+    private static final float CTA_H = 64f;
+    private static final float ICON_DX = 232f;
+    private static final float ICON_R = 30f;
+    private static final float BOX_H = 76f;
+
+    // Layout shared by the non-lobby pages.
+    private static final float PAGE_KICKER = 136f;
+    private static final float CONNECT_RULE1 = 176f;
+    private static final float CONNECT_RULE2 = 470f;
+    private static final float CONNECT_CHIP_TOP = 210f;
+    private static final float CONNECT_ACTION_TOP = 336f;
+    private static final float MATCH_RULE = 96f;
+    private static final float RESULT_ACTION_TOP = 552f;
+    private static final float BOX_RADIUS = 0.0f;
+
+    private static final Color LOBBY_GREY = new Color(0.62f, 0.62f, 0.62f, 1f);
+    private static final Color LOBBY_GREY_DIM = new Color(0.50f, 0.50f, 0.50f, 1f);
+    private static final Color LOBBY_UNDER = new Color(0.30f, 0.30f, 0.30f, 1f);
+    private static final Color LOBBY_INK = new Color(0.05f, 0.05f, 0.05f, 1f);
+    private static final Color CAP_BLUE = new Color(0.56f, 0.78f, 0.92f, 1f);
+    private static final Color CAP_DARK = new Color(0.22f, 0.40f, 0.52f, 1f);
+    private static final Color BEAM_BLUE = new Color(0.72f, 0.88f, 1f, 1f);
+    private static final Color GEM_BLUE = new Color(0.55f, 0.88f, 1f, 1f);
+    /** The primary action: deep navy, same family as the POLICE chip colour. */
+    private static final Color READY_BLUE = new Color(0.13f, 0.25f, 0.40f, 1f);
+
+    /** Role names on the white chips: readable on white without glaring. */
+    private static final Color ROLE_POLICE = new Color(0.20f, 0.42f, 0.62f, 1f);
+    private static final Color ROLE_THIEF = new Color(0.68f, 0.23f, 0.23f, 1f);
+
     private static final float QUIT_X = 520f, QUIT_Y = 30f, QUIT_W = 240f, QUIT_H = 56f;
 
     private ClientGateway gateway;
@@ -44,12 +87,62 @@ public final class LightChaseApp extends ApplicationAdapter {
     private final OrthographicCamera worldCamera = new OrthographicCamera();
     private final OrthographicCamera uiCamera = new OrthographicCamera();
     private final FitViewport world = new FitViewport(128f / 9f, 8f, worldCamera);
-    private final FitViewport ui = new FitViewport(TouchController.UI_WIDTH, TouchController.UI_HEIGHT, uiCamera);
+    // Extend keeps the UI at 720 units tall but widens it to the device aspect, so a
+    // 20:9 phone fills its screen instead of leaving black bars left and right.
+    private final ExtendViewport ui = new ExtendViewport(TouchController.UI_WIDTH, TouchController.UI_HEIGHT, uiCamera);
     private final TouchController touch = new TouchController();
 
     private ShapeRenderer shapes;
     private SpriteBatch batch;
+    private UiFonts fonts;
+    private final UiRound uiRound = new UiRound();
     private BitmapFont font;
+    /** Which control was touched last, and when, so the press is visible for a moment. */
+    private String pressTarget = null;
+    private long pressAtMs = 0L;
+
+    // ---- lobby animation ----------------------------------------------------------------
+    /** Idle clock for the wandering flashlight and the gem. */
+    private float lobbyClock;
+    private float hoverPolice, hoverThief, hoverReady, hoverLeave;
+    private float selectPolice, selectThief;
+    /** 0 = flashlight off, 1 = fully on. Turns off, aims, then comes back up. */
+    private float beamOn;
+    /** Idle sweep intensity, faded separately so leaving the role does not snap the light on. */
+    private float idleOn;
+    /** 0 = wandering, 1 = aimed at the text: driven by the switch sequence, not by the click. */
+    private float turn;
+    /** Seconds since POLICE was chosen; negative when it is not the current role. */
+    private float toPoliceT = -1f;
+    /** Seconds since POLICE was left; negative when it is the current role. */
+    private float fromPoliceT = -1f;
+    /** How far the idle beam has grown out of the lens, 0..1. */
+    private float idleReach;
+    /** LEAVE ROOM's rule animation: rises, holds, then falls back. */
+    private float leaveHot;
+    private float leaveT = -1f;
+    private boolean leaveQueued;
+    /** Which connection field was just tapped, and when: the chip flashes so the tap lands. */
+    private int editedChip = -1;
+    /** Which secondary action is mid-pulse, and how far along. */
+    private int pulseId = -1;
+    private float pulseT;
+    private long editedAtMs;
+    /** READY plays its press animation first and only then sends the request. */
+    private boolean readyQueued;
+    private float readyPress;   // 0..1 over the animation
+
+    /** Screen transitions: fade to white, run the action, fade back from white. */
+    private int fadePhase;      // 0 idle, 1 out, 2 hold, 3 in
+    private float fadeT;
+    private Runnable fadeAction;
+    /** Per-chip cross-fade: previous value, current value, and the blend between them. */
+    private final String[] chipShown = new String[4];
+    private final String[] chipPrev = new String[4];
+    private final float[] chipFade = {1f, 1f, 1f, 1f};
+    /** Pointer in UI space, refreshed by mouseMoved / touchDown. */
+    private float pointerX = -1f, pointerY = -1f;
+    private boolean pointerSeen;
     private DataFiles data;
 
     private SessionInfo session;
@@ -103,16 +196,23 @@ public final class LightChaseApp extends ApplicationAdapter {
                 Gdx.files.internal(ClientAssets.RULES).readBytes());
         if (offlineGateway instanceof FakeGateway) ((FakeGateway) offlineGateway).configure(data);
 
+        // Without blending every translucent shape renders opaque, which turned the flashlight
+        // beam into a solid cream wedge instead of light.
+        Gdx.gl.glEnable(GL20.GL_BLEND);
+        Gdx.gl.glBlendFunc(GL20.GL_SRC_ALPHA, GL20.GL_ONE_MINUS_SRC_ALPHA);
         shapes = new ShapeRenderer();
         batch = new SpriteBatch();
-        font = new BitmapFont();
-        font.getData().setScale(1.45f);
+        // Blackout layout needs a real size hierarchy; the stock 15 px bitmap font cannot give it.
+        fonts = UiFonts.load();
+        font = fonts.mono;
+        uiRound.create();
         worldRenderer = new WorldRenderer(shapes, worldCamera, uiCamera, world, ui, data);
 
         Gdx.input.setInputProcessor(new InputAdapter() {
+
             @Override public boolean touchDown(int sx, int sy, int pointer, int button) {
                 Vector2 p = unproject(sx, sy);
-                if (p.x < 0 || p.x > TouchController.UI_WIDTH || p.y < 0 || p.y > TouchController.UI_HEIGHT) return false;
+                if (p.x < 0 || p.x > ui.getWorldWidth() || p.y < 0 || p.y > TouchController.UI_HEIGHT) return false;
                 if (page() != Page.MATCH) return tap(p, pointer);
                 // A page-level button on the match screen (QUIT) must win over the touch controls,
                 // but every other touch still belongs to the stick/hold/drop.
@@ -165,7 +265,9 @@ public final class LightChaseApp extends ApplicationAdapter {
         gateway.close();
         if (shapes != null) shapes.dispose();
         if (batch != null) batch.dispose();
-        if (font != null) font.dispose();
+        uiRound.dispose();
+        if (fonts != null) fonts.dispose();
+        else if (font != null) font.dispose();
     }
 
     // ---------------------------------------------------------------- gateway
@@ -371,19 +473,34 @@ public final class LightChaseApp extends ApplicationAdapter {
     }
 
     private boolean tap(Vector2 p, int pointer) {
+        if (fadePhase != 0) return true;   // the screen is covered
         Page page = page();
 
         if (page == Page.CONNECT) {
-            if (inside(p, 60, 500, 520, 52)) { edit("Server host", host, "10.0.2.2", v -> host = v); return true; }
-            if (inside(p, 620, 500, 180, 52)) { edit("Port", port, "8080", v -> port = v); return true; }
-            if (inside(p, 840, 500, 340, 52)) { edit("Room id", roomId, "DEMO", v -> roomId = v); return true; }
-            if (inside(p, 60, 380, 320, 64)) { connect(); return true; }
-            if (inside(p, 420, 380, 420, 64)) {
+            float cw3 = connectColumn(ui.getWorldWidth());
+            float chipY = UiTheme.yFromTop(CONNECT_CHIP_TOP, BOX_H);
+            if (inside(p, UiTheme.MARGIN, chipY, cw3, BOX_H)) {
+                editedChip = 0; editedAtMs = System.nanoTime() / 1_000_000L;
+                edit("Server host", host, "10.0.2.2", v -> host = v); return true;
+            }
+            if (inside(p, UiTheme.MARGIN + cw3 + GRID_GAP, chipY, cw3, BOX_H)) {
+                editedChip = 1; editedAtMs = System.nanoTime() / 1_000_000L;
+                edit("Port", port, "8080", v -> port = v); return true;
+            }
+            if (inside(p, UiTheme.MARGIN + 2f * (cw3 + GRID_GAP), chipY, cw3, BOX_H)) {
+                editedChip = 2; editedAtMs = System.nanoTime() / 1_000_000L;
+                edit("Room id", roomId, "DEMO", v -> roomId = v); return true;
+            }
+            float actY = UiTheme.yFromTop(CONNECT_ACTION_TOP, CTA_H);
+            if (inside(p, UiTheme.MARGIN, actY, CTA_W, CTA_H)) { startTransition(this::connect); return true; }
+            if (inside(p, scenarioX(ui.getWorldWidth()) - 12f, actY, 260f, CTA_H)) {
+                pulse(0);
                 FakeGateway.Scenario[] all = FakeGateway.Scenario.values();
                 scenario = all[(scenario.ordinal() + 1) % all.length];
                 return true;
             }
-            if (inside(p, 860, 380, 320, 64)) {
+            if (inside(p, modeX(ui.getWorldWidth()) - 12f, actY, 260f, CTA_H)) {
+                pulse(1);
                 mode = mode == Mode.OFFLINE ? Mode.LAN : Mode.OFFLINE;
                 // Switching transport drops the current one: leaving a live LAN socket behind while
                 // the UI shows OFFLINE would let two transports deliver callbacks.
@@ -406,16 +523,46 @@ public final class LightChaseApp extends ApplicationAdapter {
         }
 
         if (page == Page.LOBBY) {
-            if (inside(p, 60, 360, 220, 64)) { if (!pending("SELECT_ROLE")) gateway.selectRole(Role.POLICE); return true; }
-            if (inside(p, 300, 360, 220, 64)) { if (!pending("SELECT_ROLE")) gateway.selectRole(Role.THIEF); return true; }
-            if (inside(p, 560, 360, 260, 64)) { if (!pending("SET_READY")) gateway.setReady(!isSelfReady()); return true; }
-            if (inside(p, 860, 360, 260, 64)) { if (!pending("LEAVE_ROOM")) { touch.clear(); gateway.leaveRoom(); } return true; }
+            // Boxes mirror the mockup: the whole role row is tappable, not just the name.
+            if (inside(p, ROLE_CX - 200f, UiTheme.yFromTop(ROLE1_TOP - 8f, 108f), 420f, 108f)) {
+                recordPress("role-police");
+                if (!pending("SELECT_ROLE")) gateway.selectRole(Role.POLICE);
+                return true;
+            }
+            if (inside(p, ROLE_CX - 200f, UiTheme.yFromTop(ROLE2_TOP - 8f, 108f), 420f, 108f)) {
+                recordPress("role-thief");
+                if (!pending("SELECT_ROLE")) gateway.selectRole(Role.THIEF);
+                return true;
+            }
+            if (inside(p, UiTheme.MARGIN, UiTheme.yFromTop(CTA_TOP, CTA_H), CTA_W, CTA_H)) {
+                recordPress("ready");
+                // The click starts the animation; the request goes out when it lands, so the
+                // button reacts before the network does.
+                if (!pending("SET_READY") && !readyQueued) {
+                    readyQueued = true;
+                    readyPress = 0f;
+                }
+                return true;
+            }
+            if (inside(p, leaveCentre(ui.getWorldWidth()) - UiDraw.width(fonts.mono, "LEAVE ROOM", 1.5f) / 2f - 24f, UiTheme.yFromTop(CTA_TOP, CTA_H), UiDraw.width(fonts.mono, "LEAVE ROOM", 1.5f) + 48f, CTA_H)) {
+                recordPress("leave");
+                // The animation runs first; the request goes out once the rule is at full size,
+                // otherwise the screen changes before anything can be seen.
+                if (!pending("LEAVE_ROOM") && !leaveQueued) {
+                    leaveQueued = true;
+                    leaveT = 0f;
+                }
+                return true;
+            }
             return true;
         }
 
         if (page == Page.RESULT) {
-            if (inside(p, 60, 260, 320, 64)) {
-                if (!pending("RETURN_LOBBY")) { touch.clear(); gateway.returnToLobby(); }
+            if (inside(p, UiTheme.MARGIN, UiTheme.yFromTop(RESULT_ACTION_TOP + bottomShift(), CTA_H),
+                    300f, CTA_H)) {
+                if (!pending("RETURN_LOBBY")) {
+                    startTransition(() -> { touch.clear(); gateway.returnToLobby(); });
+                }
                 return true;
             }
             return true;
@@ -483,6 +630,11 @@ public final class LightChaseApp extends ApplicationAdapter {
         }
         Page page = page();
         if (page != lastPage) {
+            // Every page change is covered by white: no page ever appears with a hard cut.
+            if (fadePhase == 0 && lastPage != null) {
+                fadePhase = 2;
+                fadeT = 0f;
+            }
             String summary = quit.takeSummary();
             notice = summary == null ? "" : summary;
             touch.clear();
@@ -492,11 +644,12 @@ public final class LightChaseApp extends ApplicationAdapter {
         gateway.submitInput(inMatch ? touch.frame() : InputFrame.ZERO);
         if (gateway instanceof FakeGateway) ((FakeGateway) gateway).advance(Gdx.graphics.getDeltaTime());
 
-        Gdx.gl.glClearColor(0.035f, 0.05f, 0.08f, 1f);
+        Gdx.gl.glClearColor(UiTheme.BG.r, UiTheme.BG.g, UiTheme.BG.b, 1f);
         Gdx.gl.glClear(GL20.GL_COLOR_BUFFER_BIT);
 
         interpolator.sample(System.nanoTime() / 1_000_000L);
         if (inMatch) worldRenderer.renderWorld(view, interpolator);
+        updateLobby(Gdx.graphics.getDeltaTime());
         drawUi(page);
         if (inMatch) worldRenderer.renderMinimap(view, interpolator);
         drawText(page);
@@ -505,63 +658,104 @@ public final class LightChaseApp extends ApplicationAdapter {
     private void drawUi(Page page) {
         ui.apply();
         shapes.setProjectionMatrix(uiCamera.combined);
+        // ShapeRenderer does not turn blending on for itself; without this every translucent
+        // beam renders as an opaque slab.
+        Gdx.gl.glEnable(GL20.GL_BLEND);
+        Gdx.gl.glBlendFunc(GL20.GL_SRC_ALPHA, GL20.GL_ONE_MINUS_SRC_ALPHA);
         shapes.begin(ShapeRenderer.ShapeType.Filled);
 
-        shapes.setColor(0.045f, 0.07f, 0.11f, 1f);
-        shapes.rect(0, 655, TouchController.UI_WIDTH, 65);
-
         switch (page) {
-            case CONNECT:
-                field(60, 500, 520, 52);
-                field(620, 500, 180, 52);
-                field(840, 500, 340, 52);
-                button(60, 380, 320, 64, true);
-                button(420, 380, 420, 64, false);
-                button(860, 380, 320, 64, mode == Mode.LAN, lanGatewayFactory != null);
+            case CONNECT: {
+                float w = ui.getWorldWidth();
+                pageRule(shapes, w, CONNECT_RULE1);
+                pageRule(shapes, w, CONNECT_RULE2 + bottomShift());
+                secondaryRule(shapes, scenarioX(w), actionTextTop(), scenarioLabel(), scenarioActive(),
+                        pulseOf(0));
+                secondaryRule(shapes, modeX(w), actionTextTop(), modeLabel(), mode == Mode.LAN, pulseOf(1));
                 break;
+            }
             case LOBBY: {
-                slot(60, 470, 520, 64, true);
-                slot(620, 470, 520, 64, false);
-                button(60, 360, 220, 64, selectedRole == Role.POLICE, !pending("SELECT_ROLE"));
-                button(300, 360, 220, 64, selectedRole == Role.THIEF, !pending("SELECT_ROLE"));
-                button(560, 360, 260, 64, isSelfReady(), !pending("SET_READY"));
-                button(860, 360, 260, 64, false, !pending("LEAVE_ROOM"));
+                float w = ui.getWorldWidth();
+                float bs = bottomShift();
+                // Rounded, pure white, eight units: a hairline disappears on a phone.
+                lobbyCapsule(shapes, UiTheme.MARGIN, RULE1_TOP, w - 2 * UiTheme.MARGIN, RULE_H, Color.WHITE);
+                lobbyCapsule(shapes, UiTheme.MARGIN, RULE2_TOP + bs, w - 2 * UiTheme.MARGIN, RULE_H, Color.WHITE);
+                lobbyRoleMarker(shapes, ROLE1_TOP, "POLICE", selectPolice);
+                lobbyRoleMarker(shapes, ROLE2_TOP, "THIEF", selectThief);
+                lobbyPoliceIcon(shapes, ROLE_CX + ICON_DX, UiTheme.H - (ROLE1_TOP + 38f));
+                lobbyThiefIcon(shapes, ROLE_CX + ICON_DX, UiTheme.H - (ROLE2_TOP + 38f), selectThief);
+                // Five slots at rest, the full label when pressed; 1.5 units under the text.
+                float leaveW = UiDraw.width(fonts.mono, "LEAVE ROOM", 1.5f);
+                float unit = UiDraw.width(fonts.mono, "M", 1.5f);
+                float hot = UiAnim.smooth(leaveHot);
+                float ctop = CTA_TOP + bs + (CTA_H - UiDraw.capHeight(fonts.cta)) / 2f;
+                float leaveTop = ctop + (UiDraw.capHeight(fonts.cta) - UiDraw.capHeight(fonts.mono)) / 2f;
+                // Half of the gap beneath the POLICE name (name ink ends at +35, its marker at +46).
+                float policeGap = 46f - 6f - UiDraw.capHeight(fonts.displayMid);
+                float ruleTop = leaveTop + UiDraw.capHeight(fonts.mono) + policeGap / 2f * 1.3f;
+                float ruleW = UiAnim.lerp(unit * 5f, leaveW, hot);
+                scratchColor.set(LOBBY_UNDER);
+                scratchColor.lerp(UiTheme.ACCENT, hot);
+                lobbyCapsule(shapes, leaveCentre(w) - ruleW / 2f, ruleTop, ruleW,
+                        5f + 4f * hot, scratchColor);
                 break;
             }
             case COUNTDOWN: {
-                float progress = room == null ? 0f : 1f - Math.min(1f, room.countdownRemainingMs / countdownTotalMs());
-                shapes.setColor(0.10f, 0.18f, 0.26f, 1f);
-                shapes.rect(340, 300, 600, 24);
-                shapes.setColor(0.14f, 0.55f, 0.62f, 1f);
-                shapes.rect(340, 300, 600 * progress, 24);
+                float w = ui.getWorldWidth();
+                pageRule(shapes, w, CONNECT_RULE1);
+                // Three dots, one per second: the current beat is white, the rest wait their turn.
+                int seconds = room == null ? 0 : (int) Math.ceil(room.countdownRemainingMs / 1000.0);
+                int total = Math.max(1, (int) Math.round(countdownTotalMs() / 1000.0));
+                int done = Math.max(0, total - seconds);
+                for (int i = 0; i < total; i++) {
+                    float cx = w / 2f + (i - (total - 1) / 2f) * 64f;
+                    shapes.setColor(i < done ? Color.WHITE : new Color(0.24f, 0.24f, 0.24f, 1f));
+                    shapes.circle(cx, UiTheme.H - 320f, 14f, 24);
+                }
                 break;
             }
             case MATCH: {
-                shapes.setColor(0.12f, 0.2f, 0.29f, 1f);
+                float w = ui.getWorldWidth();
+                pageRule(shapes, w, MATCH_RULE);
+                // Stick: a thin ring plus a dot that follows the thumb.
+                shapes.setColor(1f, 1f, 1f, 0.10f);
                 shapes.circle(TouchController.JOY_X, TouchController.JOY_Y, TouchController.JOY_R, 48);
-                shapes.setColor(Color.CYAN);
+                shapes.setColor(1f, 1f, 1f, 0.22f);
+                shapes.circle(TouchController.JOY_X, TouchController.JOY_Y, TouchController.JOY_R, 48);
+                shapes.setColor(0.043f, 0.063f, 0.090f, 1f);
+                shapes.circle(TouchController.JOY_X, TouchController.JOY_Y, TouchController.JOY_R - 2f, 48);
+                shapes.setColor(Color.WHITE);
                 shapes.circle(TouchController.JOY_X + (float) touch.moveX() * 55f,
-                        TouchController.JOY_Y + (float) touch.moveY() * 55f, 28f, 32);
+                        TouchController.JOY_Y + (float) touch.moveY() * 55f, 26f, 32);
                 if (selectedRole == Role.THIEF) {
-                    shapes.setColor(touch.interacting() ? Color.TEAL : new Color(0.17f, 0.26f, 0.34f, 1f));
-                    shapes.circle(TouchController.HOLD_X, TouchController.HOLD_Y, TouchController.HOLD_R, 48);
-                    shapes.setColor(0.17f, 0.26f, 0.34f, 1f);
-                    shapes.circle(TouchController.DROP_X, TouchController.DROP_Y, TouchController.DROP_R, 32);
+                    ring(shapes, TouchController.HOLD_X, TouchController.HOLD_Y, TouchController.HOLD_R,
+                            touch.interacting() ? 1f : 0.28f);
+                    ring(shapes, TouchController.DROP_X, TouchController.DROP_Y, TouchController.DROP_R, 0.28f);
                     float progress = interactionProgress();
                     if (progress > 0) {
-                        shapes.setColor(0.10f, 0.18f, 0.26f, 1f);
-                        shapes.rect(TouchController.HOLD_X - 90, TouchController.HOLD_Y + 86, 180, 14);
-                        shapes.setColor(0.14f, 0.85f, 0.62f, 1f);
-                        shapes.rect(TouchController.HOLD_X - 90, TouchController.HOLD_Y + 86, 180 * progress, 14);
+                        float bw = 180f;
+                        lobbyCapsule(shapes, TouchController.HOLD_X - bw / 2f,
+                                UiTheme.H - (TouchController.HOLD_Y + 96f), bw, 10f,
+                                new Color(1f, 1f, 1f, 0.22f));
+                        lobbyCapsule(shapes, TouchController.HOLD_X - bw / 2f,
+                                UiTheme.H - (TouchController.HOLD_Y + 96f), bw * progress, 10f, Color.WHITE);
                     }
                 }
-                // Quitting mid-match keeps the connection open until the server sends GAME_OVER.
-                button(QUIT_X, QUIT_Y, QUIT_W, QUIT_H, false, !quit.active() && !pending("LEAVE_ROOM"));
+                float quitTextTop = UiTheme.H - QUIT_Y - QUIT_H
+                        + (QUIT_H - UiDraw.capHeight(fonts.mono)) / 2f;
+                float quitLabelW = UiDraw.width(fonts.mono, "QUIT MATCH", 1.5f);
+                scratchColor.set(quit.active() ? UiTheme.ACCENT : LOBBY_UNDER);
+                float quitRuleW = quitLabelW * 0.42f;
+                lobbyCapsule(shapes, QUIT_X + QUIT_W / 2f - quitRuleW / 2f,
+                        quitTextTop + UiDraw.capHeight(fonts.mono) + 6f, quitRuleW, 5f, scratchColor);
                 break;
             }
-            case RESULT:
-                button(60, 260, 320, 64, true, !pending("RETURN_LOBBY"));
+            case RESULT: {
+                float w = ui.getWorldWidth();
+                pageRule(shapes, w, CONNECT_RULE1);
+                pageRule(shapes, w, CONNECT_RULE2 + bottomShift());
                 break;
+            }
             default:
                 break;
         }
@@ -586,12 +780,6 @@ public final class LightChaseApp extends ApplicationAdapter {
     private void drawText(Page page) {
         batch.setProjectionMatrix(uiCamera.combined);
         batch.begin();
-        font.setColor(Color.WHITE);
-        font.draw(batch, "LIGHT CHASE  /  " + page.name(), 30, 700);
-        if (page != Page.MATCH) {
-            font.setColor(Color.GOLD);
-            font.draw(batch, "OFFLINE FIXTURE - not the real server, no game rules", 30, 672);
-        }
 
         switch (page) {
             case CONNECT: drawConnectText(); break;
@@ -602,168 +790,942 @@ public final class LightChaseApp extends ApplicationAdapter {
             default: break;
         }
 
+        // The cover is one layer for the whole app: every page change is hidden behind it.
+        float cover = fadeCover();
+        if (cover > 0.001f) {
+            uiRound.rect(batch, new Color(1f, 1f, 1f, cover), 0f, 0f,
+                    ui.getWorldWidth(), UiTheme.H);
+        }
+
         if (!errorText.isEmpty()) {
-            font.setColor(1f, 0.45f, 0.45f, 1f);
-            font.draw(batch, "ERROR  " + errorText, 30, 60);
+            String line = "ERROR  " + errorText;
+            float x = 30f;
+            UiDraw.text(batch, fonts.mono, line, x, 720f - 60f - UiDraw.capHeight(fonts.mono),
+                    UiTheme.ACCENT, 1.5f);
         } else if (!notice.isEmpty()) {
-            font.setColor(Color.LIGHT_GRAY);
-            font.draw(batch, notice, 30, 60);
+            UiDraw.text(batch, fonts.mono, notice, 30f, 720f - 60f - UiDraw.capHeight(fonts.mono),
+                    UiTheme.TEXT_SOFT, 1.5f);
         }
         batch.end();
     }
 
     private void drawConnectText() {
-        font.setColor(Color.LIGHT_GRAY);
-        font.draw(batch, "SERVER HOST", 60, 585);
-        font.draw(batch, "PORT", 620, 585);
-        font.draw(batch, "ROOM", 840, 585);
-        font.setColor(Color.WHITE);
-        font.draw(batch, host, 78, 536);
-        font.draw(batch, port, 638, 536);
-        font.draw(batch, roomId, 858, 536);
-        font.draw(batch, "CONNECT", 150, 424);
-        font.setColor(Color.LIGHT_GRAY);
-        font.draw(batch, "SCENARIO: " + scenario, 440, 424);
-        font.setColor(mode == Mode.LAN ? new Color(0.55f, 0.85f, 0.95f, 1f) : Color.LIGHT_GRAY);
-        font.draw(batch, "MODE: " + mode, 888, 424);
-        font.setColor(Color.LIGHT_GRAY);
-        font.draw(batch, "Status: " + connectionState + (connectionDetail.isEmpty() ? "" : "  (" + connectionDetail + ")"),
-                60, 320);
+        float w = ui.getWorldWidth();
+        float m = UiTheme.MARGIN;
+        float bs = bottomShift();
+
+        UiDraw.text(batch, fonts.display, "LIGHT \u00b7 CHASE", m, 64f, UiTheme.TEXT, 1.5f);
+        UiDraw.text(batch, fonts.monoBig, "CONNECT", m + 2f, PAGE_KICKER, UiTheme.ACCENT, 2.5f);
+
+        String modeLabel = "MODE  " + mode.name();
+        UiDraw.text(batch, fonts.mono, modeLabel,
+                w - m - UiDraw.width(fonts.mono, modeLabel, 1f),
+                64f + (UiDraw.capHeight(fonts.display) - UiDraw.capHeight(fonts.mono)) / 2f,
+                LOBBY_GREY, 1f);
+
+        // Three equal columns: the gaps between them are the same as every other gap.
+        float colW = connectColumn(w);
+        long since = System.nanoTime() / 1_000_000L - editedAtMs;
+        chip(m, CONNECT_CHIP_TOP, colW, BOX_H, "SERVER HOST", host, editedChip == 0 && since < 700);
+        chip(m + colW + GRID_GAP, CONNECT_CHIP_TOP, colW, BOX_H, "PORT", port,
+                editedChip == 1 && since < 700);
+        chip(m + 2f * (colW + GRID_GAP), CONNECT_CHIP_TOP, colW, BOX_H, "ROOM", roomId,
+                editedChip == 2 && since < 700);
+
+        primaryButton(m, CONNECT_ACTION_TOP, CTA_W, CTA_H, "CONNECT", lanGatewayFactory != null);
+        secondaryAction(scenarioX(w), actionTextTop(), scenarioLabel(), scenarioActive(), 0);
+        secondaryAction(modeX(w), actionTextTop(), modeLabel(), mode == Mode.LAN, 1);
+
+        kv(m, CONNECT_RULE2 + bs + 44f, "STATUS", connectionState, UiTheme.TEXT);
+        if (!connectionDetail.isEmpty()) {
+            UiDraw.text(batch, fonts.mono, connectionDetail, m + 260f, CONNECT_RULE2 + bs + 68f,
+                    LOBBY_GREY, 1f);
+        }
         if (mode == Mode.LAN) {
             boolean ok = permission == null || permission.granted();
-            font.setColor(ok ? new Color(0.55f, 0.95f, 0.45f, 1f) : new Color(1f, 0.65f, 0.35f, 1f));
-            font.draw(batch, "ACCESS_LOCAL_NETWORK: " + (permission == null ? "N/A (no platform gate)" : permission.describe()),
-                    60, 240);
+            UiDraw.text(batch, fonts.mono,
+                    "ACCESS_LOCAL_NETWORK  " + (permission == null ? "N/A" : permission.describe()),
+                    m, CONNECT_RULE2 + bs + 112f, ok ? LOBBY_GREY : UiTheme.ACCENT, 1f);
         }
-        font.setColor(Color.LIGHT_GRAY);
-        font.draw(batch, "Tap a field to edit. SCENARIO replays fixture failures; MODE switches OFFLINE / LAN.",
-                60, 280);
+        UiDraw.text(batch, fonts.mono, "TAP A FIELD TO EDIT \u00b7 SCENARIO REPLAYS FIXTURE FAILURES",
+                m, 652f + bs, LOBBY_GREY, 1f);
     }
 
     private void drawLobbyText() {
-        font.setColor(Color.WHITE);
-        font.draw(batch, "ROOM  " + room.roomId + "     PHASE  " + room.phase, 60, 620);
-        font.draw(batch, "MAP  " + room.mapId + "     REV  " + room.revision, 60, 578);
+        float w = ui.getWorldWidth();
+        float m = UiTheme.MARGIN;
+        float bs = bottomShift();
 
+        UiDraw.text(batch, fonts.display, "LIGHT \u00b7 CHASE", m, 64f, UiTheme.TEXT, 1.5f);
+        UiDraw.text(batch, fonts.monoBig, "LOBBY", m + 2f, 136f, UiTheme.ACCENT, 2.5f);
+
+        String modeLabel = "MODE  " + mode.name();
+        float modeTop = 64f + (UiDraw.capHeight(fonts.display) - UiDraw.capHeight(fonts.mono)) / 2f;
+        UiDraw.text(batch, fonts.mono, modeLabel,
+                w - m - UiDraw.width(fonts.mono, modeLabel, 1f), modeTop, LOBBY_GREY, 1f);
+
+        // ---- role cards ------------------------------------------------------------------
+        // The lit field is stacked rectangles: the centre saturates, the rim fades into the black,
+        // so the text sits in light rather than in a box.
+        float lit = UiAnim.smooth(selectPolice);
+        lobbyRoleCard(ROLE1_TOP, "POLICE", "flashlight / mark three times", selectPolice, beamOn);
+        lobbyRoleCard(ROLE2_TOP, "THIEF", "three drops / then escape", selectThief, 0f);
+
+        // ---- fact boxes ------------------------------------------------------------------
         RoomPlayer self = selfPlayer();
         RoomPlayer other = opponentPlayer();
-        font.setColor(Color.LIGHT_GRAY);
-        font.draw(batch, "YOU      " + (self == null ? "-" : describe(self)), 78, 512);
-        font.draw(batch, "OPPONENT " + (other == null ? "waiting for a second player" : describe(other)), 638, 512);
+        float x0 = w * 0.54f;
+        float gap = GRID_GAP;
+        float boxW = (w - m - x0 - gap) / 2f;
+        lobbyBox(0, x0, ROLE1_TOP, boxW, "ROOM", room.roomId);
+        lobbyBox(1, x0 + boxW + gap, ROLE1_TOP, boxW, "MAP", room.mapId);
+        lobbyBox(2, x0, ROLE2_TOP, boxW, "YOU",
+                self == null || self.role == null ? "-" : self.role.name());
+        lobbyBox(3, x0 + boxW + gap, ROLE2_TOP, boxW, "OPPONENT",
+                other == null || other.role == null ? "-" : other.role.name());
 
-        font.setColor(Color.WHITE);
-        font.draw(batch, "POLICE", 128, 404);
-        font.draw(batch, "THIEF", 368, 404);
-        font.draw(batch, isSelfReady() ? "CANCEL READY" : "READY", 596, 404);
-        font.draw(batch, "LEAVE ROOM", 900, 404);
+        // ---- primary action ---------------------------------------------------------------
+        boolean busy = pending("SET_READY");
+        // Pressing fades the whole control towards white, so it dissolves into the white
+        // transition instead of cutting to it. Same length as the POLICE switch.
+        float pressLit = UiAnim.smooth(readyPress);
+        float bw = CTA_W;
+        float bh = CTA_H;
+        float bx = m;
+        float btop = CTA_TOP + bs;
+        scratchColor.set(busy ? UiTheme.LINE : READY_BLUE);
+        scratchColor.lerp(Color.WHITE, pressLit);
+        uiRound.fill(batch, scratchColor, bx, btop, bw, bh);
 
-        font.setColor(Color.LIGHT_GRAY);
-        if (room.phase == RoomPhase.LOBBY) {
-            font.draw(batch, "Both players must be ready before the 3 second countdown starts.", 60, 300);
-        } else {
-            font.draw(batch, "Ready is disabled outside the lobby phase.", 60, 300);
+        String cta = busy ? "WAITING..." : (isSelfReady() ? "CANCEL READY" : "READY");
+        float cw = UiDraw.width(fonts.cta, cta, 1.5f);
+        float ctop = btop + (bh - UiDraw.capHeight(fonts.cta)) / 2f;
+        // The label stays white: as the slab whitens the two converge and the button washes
+        // out into the incoming white screen rather than switching colour.
+        UiDraw.text(batch, fonts.cta, cta, bx + (bw - cw) / 2f, ctop,
+                busy ? LOBBY_GREY : Color.WHITE, 1.5f);
+        ctop = CTA_TOP + bs + (CTA_H - UiDraw.capHeight(fonts.cta)) / 2f;
+
+        // Same line as READY, centred under the OPPONENT chip.
+        float leaveTop = ctop + (UiDraw.capHeight(fonts.cta) - UiDraw.capHeight(fonts.mono)) / 2f;
+        float leaveW2 = UiDraw.width(fonts.mono, "LEAVE ROOM", 1.5f);
+        scratchColor.set(LOBBY_GREY);
+        scratchColor.lerp(Color.WHITE, UiAnim.smooth(leaveHot));
+        UiDraw.text(batch, fonts.mono, "LEAVE ROOM", leaveCentre(w) - leaveW2 / 2f, leaveTop,
+                scratchColor, 1.5f);
+
+        // ---- footer ------------------------------------------------------------------------
+        int ready = 0;
+        int total = 0;
+        for (RoomPlayer p : room.players) {
+            total++;
+            if (p.ready) ready++;
         }
+        String status;
+        Color statusColor = LOBBY_GREY;
+        if (total <= 1) {
+            status = "WAITING FOR A SECOND PLAYER";
+        } else if (ready >= total) {
+            status = "STARTING...";
+            statusColor = UiTheme.ACCENT;
+        } else if (ready == 0) {
+            status = "0 / " + total + " READY \u00b7 BOTH MUST READY";
+        } else {
+            status = ready + " / " + total + " READY \u00b7 WAITING FOR OPPONENT";
+        }
+        UiDraw.text(batch, fonts.mono, status, m, 652f + bs, statusColor, 1f);
+
+        if (!errorText.isEmpty()) {
+            String line = "ERROR  " + errorText;
+            UiDraw.text(batch, fonts.mono, line,
+                    w - m - UiDraw.width(fonts.mono, line, 1f), 198f, UiTheme.ACCENT, 1f);
+        }
+    }
+
+    private final Color scratchColor = new Color();
+
+    /** 0 at rest, 1 at the bottom of the press; down fast, hold, then spring back. */
+    private float pressCurve(float t) {
+        if (t <= 0f) return 0f;
+        if (t < 0.34f) return UiAnim.smooth(t / 0.34f);
+        if (t < 0.62f) return 1f;
+        return Usm(1f - (t - 0.62f) / 0.38f);
+    }
+
+    private float Usm(float t) {
+        return UiAnim.smooth(t);
+    }
+
+    // ---- shared page pieces ----------------------------------------------------------------
+
+    /** Full-width white rule with round caps. */
+    private void pageRule(ShapeRenderer shapes, float w, float top) {
+        lobbyCapsule(shapes, UiTheme.MARGIN, top, w - 2 * UiTheme.MARGIN, RULE_H, Color.WHITE);
+    }
+
+    /** The marker under a text-only action: a short capsule that brightens when it is live. */
+    private void secondaryRule(ShapeRenderer shapes, float x, float textTop, String label,
+                              boolean live, float pulse) {
+        float textW = UiDraw.width(fonts.mono, label, 1.5f);
+        float ruleW = UiAnim.lerp(textW * 0.5f, textW * 0.8f, pulse);
+        float ruleTop = textTop + UiDraw.capHeight(fonts.mono) + 6f;
+        scratchColor.set(live ? Color.WHITE : LOBBY_UNDER);
+        scratchColor.lerp(UiTheme.ACCENT, pulse);
+        lobbyCapsule(shapes, x + textW / 2f - ruleW / 2f, ruleTop, ruleW,
+                5f + 3f * pulse, scratchColor);
+    }
+
+    /** 0..1 envelope of the tap pulse for a secondary action. */
+    private float pulseOf(int id) {
+        if (pulseId != id) return 0f;
+        return (float) Math.sin(Math.PI * Math.min(1f, pulseT / 0.45f));
+    }
+
+    private void pulse(int id) {
+        pulseId = id;
+        pulseT = 0f;
+    }
+
+    /** Top of a label that is vertically centred inside the primary button's band. */
+    private float actionTextTop() {
+        return CONNECT_ACTION_TOP + (CTA_H - UiDraw.capHeight(fonts.mono)) / 2f;
+    }
+
+    /** A ring, used for the hold/drop controls. */
+    private void ring(ShapeRenderer shapes, float cx, float cy, float r, float alpha) {
+        shapes.setColor(1f, 1f, 1f, alpha);
+        shapes.circle(cx, cy, r, 48);
+        shapes.setColor(0.043f, 0.063f, 0.090f, 1f);   // the floor's own colour
+        shapes.circle(cx, cy, r - 3f, 48);
+    }
+
+    /** White rounded chip with a label over a value, both centred. */
+    private void chip(float x, float top, float w, float h, String label, String value) {
+        chip(x, top, w, h, label, value, false);
+    }
+
+    private void chip(float x, float top, float w, float h, String label, String value, boolean justTapped) {
+        uiRound.fill(batch, Color.WHITE, x, top, w, h);
+        if (justTapped) {
+            // A short accent bar along the bottom edge: the tap is acknowledged even though the
+            // actual editing happens in a system dialog.
+            float unit = UiDraw.width(fonts.mono, "M", 0.4f);
+            uiRound.fill(batch, UiTheme.ACCENT, x + w / 2f - unit * 2f, top + h - 5f, unit * 4f, 4f);
+        }
+        float cx = x + w / 2f;
+        float hLabel = UiDraw.capHeight(fonts.mono);
+        float hValue = UiDraw.capHeight(fonts.displaySmall);
+        float pad = (h - hLabel - hValue) / 3f;
+        centered(batch, fonts.mono, label, cx, top + pad, new Color(0.22f, 0.22f, 0.22f, 1f), 0.4f);
+        centered(batch, fonts.displaySmall, UiDraw.fit(fonts.displaySmall, value, w - 32f, 0.5f),
+                cx, top + pad * 2f + hLabel, UiTheme.ON_LIGHT, 0.5f);
+    }
+
+    /** Deep navy slab with a white label, the same primary as the lobby. */
+    private void primaryButton(float x, float top, float w, float h, String label, boolean enabled) {
+        uiRound.fill(batch, enabled ? READY_BLUE : UiTheme.LINE, x, top, w, h);
+        float cw = UiDraw.width(fonts.cta, label, 1.5f);
+        float top2 = top + (h - UiDraw.capHeight(fonts.cta)) / 2f;
+        UiDraw.text(batch, fonts.cta, label, x + (w - cw) / 2f, top2,
+                enabled ? Color.WHITE : LOBBY_GREY, 1.5f);
+    }
+
+    /** Text-only action with a marker underneath. */
+    private void secondaryAction(float x, float top, String label, boolean live, int pulseId) {
+        float p = pulseOf(pulseId);
+        scratchColor.set(live ? Color.WHITE : LOBBY_GREY);
+        scratchColor.lerp(Color.WHITE, p);
+        UiDraw.text(batch, fonts.mono, label, x, top, scratchColor, 1.5f);
+    }
+
+    /** Label above a large value, aligned left. */
+    private void kv(float x, float top, String label, String value, Color valueColor) {
+        UiDraw.text(batch, fonts.mono, label, x, top, LOBBY_GREY, 1.2f);
+        UiDraw.text(batch, fonts.displaySmall, value, x, top + 24f, valueColor, 0.5f);
+    }
+
+    private String scenarioLabel() { return "SCENARIO  " + scenario; }
+
+    private String modeLabel() { return "MODE  " + mode.name(); }
+
+    private boolean scenarioActive() {
+        return scenario != FakeGateway.Scenario.NORMAL;
+    }
+
+    private float connectColumn(float w) {
+        return (w - 2 * UiTheme.MARGIN - 2 * GRID_GAP) / 3f;
+    }
+
+    private float scenarioX(float w) {
+        return UiTheme.MARGIN + CTA_W + 72f;
+    }
+
+    private float modeX(float w) {
+        return scenarioX(w) + 300f;
+    }
+
+    /** Horizontal centre of the OPPONENT chip; LEAVE ROOM is parked under it. */
+    private float leaveCentre(float w) {
+        float x0 = w * 0.54f;
+        float boxW = (w - UiTheme.MARGIN - x0 - GRID_GAP) / 2f;
+        return x0 + boxW + GRID_GAP + boxW / 2f;
+    }
+
+    private static Color blended(Color a, Color b, float t) {
+        return new Color(a).lerp(b, UiAnim.clamp01(t));
+    }
+
+    /** Role name over its hint, both centred on the column; the marker under them is a shape. */
+    /**
+     * Role name over its hint, both centred. When the flashlight is on, each character brightens
+     * once the beam has reached it, so the words light up from right to left as the light travels.
+     */
+    private void lobbyRoleCard(float top, String name, String hint, float selected, float lit) {
+        float chosen = UiAnim.smooth(selected);
+        // Unselected stays readable but clearly dimmer; selected goes all the way to white.
+        scratchColor.set(0.50f, 0.50f, 0.50f, 1f);
+        scratchColor.lerp(Color.WHITE, chosen);
+        Color warm = Color.WHITE;
+        centeredLit(batch, fonts.displayMid, name, ROLE_CX, top + 6f, scratchColor, warm, 1f, lit);
+        scratchColor.set(0.42f, 0.42f, 0.42f, 1f);
+        scratchColor.lerp(new Color(0.86f, 0.86f, 0.86f, 1f), chosen);
+        centeredLit(batch, fonts.mono, hint, ROLE_CX, top + 62f, scratchColor, warm, 0.4f, lit);
+    }
+
+    /**
+     * Draws a centred string character by character, mixing in the lit colour for the glyphs the
+     * beam has already passed. {@code lit} is 0..1 of how far across the string the light reached.
+     */
+    private void centeredLit(Batch batch, BitmapFont font, String s, float cx, float top,
+                             Color base, Color litColor, float tracking, float lit) {
+        float width = UiDraw.width(font, s, tracking);
+        float x = cx - width / 2f;
+        float edge = width * UiAnim.clamp01(lit * 1.25f);
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            float advance = advance(font, c, tracking);
+            // how far this glyph sits along the string, measured from the right edge
+            float fromRight = width - (x - (cx - width / 2f)) - advance / 2f;
+            float t = UiAnim.clamp01((edge - fromRight) / 26f);
+            scratchLit.set(base);
+            if (lit > 0.001f) scratchLit.lerp(litColor, t);
+            font.setColor(scratchLit);
+            font.draw(batch, String.valueOf(c), x, UiTheme.H - top);
+            x += advance;
+        }
+    }
+
+    private float advance(BitmapFont font, char c, float tracking) {
+        BitmapFont.Glyph g = font.getData().getGlyph(c);
+        return (g != null ? g.xadvance : font.getSpaceXadvance()) + tracking;
+    }
+
+    private final Color scratchLit = new Color();
+
+    /**
+     * White chip with black text. When the value changes, the old string fades out while the new
+     * one fades in, so a role swap reads as a change rather than a flicker.
+     */
+    private void lobbyBox(int index, float x, float top, float w, String label, String value) {
+        uiRound.fill(batch, Color.WHITE, x, top, w, BOX_H);
+        float cx = x + w / 2f;
+        // Equal space above the label, between the two lines, and below the value.
+        float hLabel = UiDraw.capHeight(fonts.mono);
+        float hValue = UiDraw.capHeight(fonts.displaySmall);
+        float pad = (BOX_H - hLabel - hValue) / 3f;
+        centered(batch, fonts.mono, label, cx, top + pad, new Color(0.22f, 0.22f, 0.22f, 1f), 0.4f);
+
+        if (value != null && !value.equals(chipShown[index])) {
+            chipPrev[index] = chipShown[index];
+            chipShown[index] = value;
+            chipFade[index] = 0f;
+        }
+        float fade = UiAnim.clamp01(chipFade[index]);
+        float valueTop = top + pad * 2f + hLabel;
+        if (chipPrev[index] != null && fade < 0.999f) {
+            centeredAlpha(batch, fonts.displaySmall, chipPrev[index], cx, valueTop,
+                    roleColor(chipPrev[index]), 0.5f, 1f - fade, w - 32f);
+        }
+        centeredAlpha(batch, fonts.displaySmall, chipShown[index], cx, valueTop,
+                roleColor(chipShown[index]), 0.5f, fade, w - 32f);
+    }
+
+    private static Color roleColor(String value) {
+        if ("POLICE".equals(value)) return ROLE_POLICE;
+        if ("THIEF".equals(value)) return ROLE_THIEF;
+        return UiTheme.ON_LIGHT;
+    }
+
+    private static void centeredAlpha(Batch batch, BitmapFont font, String s, float cx, float top,
+                                      Color color, float tracking, float alpha, float maxWidth) {
+        if (s == null || alpha <= 0.01f) return;
+        scratchAlpha.set(color);
+        scratchAlpha.a = alpha;
+        UiDraw.text(batch, font, UiDraw.fit(font, s, maxWidth, tracking),
+                cx - UiDraw.width(font, UiDraw.fit(font, s, maxWidth, tracking), tracking) / 2f,
+                top, scratchAlpha, tracking);
+    }
+
+    private static final Color scratchAlpha = new Color();
+
+    /**
+     * Like {@link #centered} but pulls 'A' closer after 'M'. Varela Round has no kerning pair there
+     * and MAP read as "M AP" at this size.
+     */
+    private static void centeredKerned(Batch batch, BitmapFont font, String s, float cx, float top,
+                                       Color color, float tracking) {
+        float width = 0f;
+        for (int i = 0; i < s.length(); i++) {
+            width += advanceOf(font, s.charAt(i), tracking);
+            if (i > 0 && s.charAt(i - 1) == 'M' && s.charAt(i) == 'A') width -= 3.0f;
+        }
+        float x = cx - width / 2f;
+        font.setColor(color);
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            if (i > 0 && s.charAt(i - 1) == 'M' && c == 'A') x -= 3.0f;
+            font.setColor(color);
+            font.draw(batch, String.valueOf(c), x, UiTheme.H - top);
+            x += advanceOf(font, c, tracking);
+        }
+    }
+
+    private static float advanceOf(BitmapFont font, char c, float tracking) {
+        BitmapFont.Glyph g = font.getData().getGlyph(c);
+        return (g != null ? g.xadvance : font.getSpaceXadvance()) + tracking;
+    }
+
+    private static void centered(Batch batch, BitmapFont font, String s, float cx, float top,
+                                 Color color, float tracking) {
+        UiDraw.text(batch, font, s, cx - UiDraw.width(font, s, tracking) / 2f, top, color, tracking);
+    }
+
+    /** Rounded marker under the role name: grey by default, red once chosen. */
+    private void lobbyRoleMarker(ShapeRenderer shapes, float top, String name, float selected) {
+        float nameW = UiDraw.width(fonts.displayMid, name, 1f);
+        float grow = UiAnim.smooth(selected);
+        float w = UiAnim.lerp(nameW * 0.5f, nameW, grow);
+        float h = UiAnim.lerp(5f, 7f, grow);
+        scratchColor.set(LOBBY_UNDER);
+        scratchColor.lerp(UiTheme.ACCENT, grow);
+        lobbyCapsule(shapes, ROLE_CX - w / 2f, top + 46f, w, h, scratchColor);
+    }
+
+    // ---- rounded geometry -------------------------------------------------------------------
+
+    /** A rule with round caps: rectangle body plus a circle at each end. */
+    private void lobbyCapsule(ShapeRenderer shapes, float x, float top, float w, float h, Color color) {
+        float y = UiTheme.yFromTop(top, h);
+        float r = h / 2f;
+        shapes.setColor(color);
+        shapes.rect(x + r, y, Math.max(0f, w - 2 * r), h);
+        shapes.circle(x + r, y + r, r, 20);
+        shapes.circle(x + w - r, y + r, r, 20);
+    }
+
+    // ---- characters -------------------------------------------------------------------------
+
+    /**
+     * Police cap from above with a flashlight in front.
+     *
+     * <p>Idle: the light sweeps slowly across the room. Chosen: it cuts out, the cap swings round,
+     * and the beam grows back out towards the words. Brightness falls off with distance, so the
+     * beam is strongest at the lens.
+     */
+    private void lobbyPoliceIcon(ShapeRenderer shapes, float cx, float cy) {
+        float sel = UiAnim.smooth(selectPolice);
+        float wander = UiAnim.sway(lobbyClock, 0.9f) * 0.55f;
+        float angle = UiAnim.lerp(wander, (float) Math.PI, UiAnim.smooth(turn));
+
+        float lx = cx + (float) Math.cos(angle) * (ICON_R + 2f);
+        float ly = cy + (float) Math.sin(angle) * (ICON_R + 2f);
+
+        if (beamOn > 0.01f) {
+            beamToText(shapes, lx, ly, angle, beamOn);
+        } else if (idleReach > 0.01f) {
+            // idle sweep: extends out of the lens at the same rate the aimed beam does
+            float reach = 120f * idleReach;
+            float idle = 0.45f * idleReach;
+            gradTri(shapes, lx, ly, idle,
+                    lx + (float) Math.cos(angle - 0.26f) * reach,
+                    ly + (float) Math.sin(angle - 0.26f) * reach, 0.02f * idleReach,
+                    lx + (float) Math.cos(angle + 0.26f) * reach,
+                    ly + (float) Math.sin(angle + 0.26f) * reach, 0.02f * idleReach);
+        }
+
+        // flashlight: short barrel and a lens at the front
+        float bx = cx + (float) Math.cos(angle) * 6f;
+        float by = cy + (float) Math.sin(angle) * 6f;
+        shapes.setColor(0.30f, 0.33f, 0.38f, 1f);
+        shapes.rectLine(bx, by, lx, ly, 13f);
+        shapes.setColor(0.64f, 0.67f, 0.72f, 1f);
+        shapes.circle(lx, ly, 8f, 18);
+        shapes.setColor(1f, 1f, 0.96f, 0.20f + 0.80f * beamOn);
+        shapes.circle(lx, ly, 5f, 16);
+
+        policeCap(shapes, cx, cy);
+    }
+
+    /** The beam: bright at the lens, fading out along its length, tapering to a soft end. */
+    private void beamToText(ShapeRenderer shapes, float lx, float ly, float angle, float on) {
+        float full = 300f;
+        float reach = full * on;
+        float half = 0.30f;
+        float nearAlpha = 0.90f * on;
+        float farAlpha = 0.10f * on;
+
+        float ex = lx + (float) Math.cos(angle) * reach;
+        float ey = ly + (float) Math.sin(angle) * reach;
+        float w = (float) Math.tan(half) * reach;
+
+        // main body: strong at the lens, gone at the tip
+        gradTri(shapes, lx, ly, nearAlpha,
+                ex + (float) Math.cos(angle) * 30f, ey + (float) Math.sin(angle) * 30f + w * 0.55f, farAlpha,
+                ex + (float) Math.cos(angle) * 30f, ey + (float) Math.sin(angle) * 30f - w * 0.55f, farAlpha);
+    }
+
+    /** Cap seen from above: crown, peak in front, badge on top. */
+    private void policeCap(ShapeRenderer shapes, float cx, float cy) {
+        shapes.setColor(CAP_DARK.r, CAP_DARK.g, CAP_DARK.b, 0.22f);
+        shapes.circle(cx, cy, ICON_R + 4f, 32);
+
+        // peak, straight in front of the crown (left) and short, so it does not stick out below
+        shapes.setColor(0.34f, 0.52f, 0.64f, 1f);
+        shapes.rectLine(cx - ICON_R * 0.92f, cy + 2f, cx + 4f, cy + 2f, 11f);
+
+        shapes.setColor(CAP_BLUE);
+        shapes.circle(cx, cy + 2f, ICON_R, 32);
+        shapes.setColor(0.44f, 0.62f, 0.73f, 1f);
+        shapes.circle(cx, cy + 4f, ICON_R * 0.74f, 30);
+        shapes.setColor(CAP_BLUE);
+        shapes.circle(cx, cy + 2f, ICON_R * 0.56f, 28);
+
+        shapes.setColor(0.92f, 0.97f, 1f, 1f);
+        shapes.circle(cx, cy + 3f, 6.5f, 18);
+        shapes.setColor(0.30f, 0.47f, 0.58f, 1f);
+        shapes.circle(cx, cy + 3f, 3.6f, 14);
+    }
+
+    /** Triangle with a different alpha at each vertex: the whole gradient without stair steps. */
+    private void gradTri(ShapeRenderer shapes, float x1, float y1, float a1,
+                         float x2, float y2, float a2, float x3, float y3, float a3) {
+        shapeNear.set(1f, 0.985f, 0.94f, a1);
+        shapeMid.set(1f, 0.985f, 0.94f, a2);
+        shapeFar.set(1f, 0.985f, 0.94f, a3);
+        shapes.triangle(x1, y1, x2, y2, x3, y3, shapeNear, shapeMid, shapeFar);
+    }
+
+    private final Color shapeNear = new Color();
+    private final Color shapeMid = new Color();
+    private final Color shapeFar = new Color();
+
+    /**
+     * Ninja from above: hood, hair with a headband knotted at the side, scarf trailing behind, and
+     * two hands. Choosing the thief plays the gem going into the bag; leaving puts it back.
+     */
+    private void lobbyThiefIcon(ShapeRenderer shapes, float cx, float cy, float selected) {
+        float sel = UiAnim.smooth(selected);
+        float bob = UiAnim.sway(lobbyClock, 2.1f) * 4f;
+        float wave = UiAnim.sway(lobbyClock, 1.6f) * 8f;
+
+        // scarf ribbons trailing behind
+        shapes.setColor(0.58f, 0.16f, 0.18f, 1f);
+        shapes.triangle(cx + 14f, cy + 10f, cx + 56f, cy + 26f + wave, cx + 54f, cy + 6f + wave);
+        shapes.setColor(0.44f, 0.11f, 0.13f, 1f);
+        shapes.triangle(cx + 14f, cy + 2f, cx + 52f, cy + 2f + wave, cx + 48f, cy - 12f + wave);
+
+        // hood: white rim, dark cloth
+        shapes.setColor(Color.WHITE);
+        shapes.circle(cx, cy, ICON_R, 32);
+        shapes.setColor(0.09f, 0.09f, 0.11f, 1f);
+        shapes.circle(cx, cy, ICON_R - 2.2f, 32);
+        shapes.setColor(0.17f, 0.17f, 0.21f, 1f);
+        shapes.circle(cx - 4f, cy + 6f, ICON_R * 0.48f, 26);
+
+        // hair across the face, and the headband tied at the side
+        shapes.setColor(0.06f, 0.06f, 0.08f, 1f);
+        shapes.rect(cx - 13f, cy + 1f, 26f, 2.6f);
+        shapes.rect(cx - 11f, cy - 4f, 22f, 2.0f);
+        shapes.setColor(0.72f, 0.18f, 0.20f, 1f);
+        shapes.rect(cx - 14f, cy + 8f, 28f, 3.2f);
+        shapes.circle(cx + 15f, cy + 9.5f, 4.0f, 14);
+        shapes.triangle(cx + 15f, cy + 9f, cx + 30f, cy + 15f + wave * 0.5f,
+                cx + 29f, cy + 5f + wave * 0.5f);
+
+        float hx = cx - 34f;
+        float hy = cy - 30f + bob * 0.5f;
+
+        // gem travels from the hands into the bag as the role is chosen
+        float t = UiAnim.clamp01((sel - 0.15f) / 0.65f);
+        float bagTop = hy + 16f;
+        float gx = UiAnim.lerp(hx, hx, t);
+        float gy = UiAnim.lerp(hy + 8f + bob, bagTop, t);
+
+        shapes.setColor(0.93f, 0.93f, 0.96f, 1f - t);
+        if (t < 0.99f) {
+            shapes.circle(hx - 8f, hy, 5.5f, 16);
+            shapes.circle(hx + 8f, hy, 5.5f, 16);
+        }
+
+        if (t > 0.01f) {
+            // a single hand gripping a round sack of loot, not a rucksack
+            float grow = UiAnim.clamp01(t * 1.3f);
+            shapes.setColor(0.93f, 0.93f, 0.96f, 1f);
+            shapes.circle(hx - 2f, hy + 2f, 5.5f, 16);
+            shapes.setColor(0.36f, 0.37f, 0.42f, 1f);
+            shapes.circle(hx, hy - 12f, 13f * grow, 22);
+            shapes.setColor(0.22f, 0.22f, 0.26f, 1f);
+            shapes.circle(hx - 4f, hy - 16f, 8f * grow, 18);
+            shapes.setColor(0.62f, 0.62f, 0.68f, 1f);
+            shapes.circle(hx, hy - 2f, 4.5f * grow, 14);
+        }
+
+        float gemAlpha = t < 0.85f ? 1f : 1f - (t - 0.85f) / 0.15f;
+        if (gemAlpha > 0.01f) {
+            float s2 = 10f;
+            shapes.setColor(0.50f, 0.86f, 1f, gemAlpha);
+            shapes.triangle(gx, gy + s2, gx - s2, gy, gx, gy - s2);
+            shapes.triangle(gx, gy + s2, gx + s2, gy, gx, gy - s2);
+            shapes.setColor(0.86f, 0.98f, 1f, gemAlpha * 0.85f);
+            shapes.triangle(gx, gy + s2 * 0.55f, gx - s2 * 0.45f, gy, gx, gy - s2 * 0.55f);
+            // highlight so it reads as a faceted stone rather than a flat diamond
+            shapes.setColor(1f, 1f, 1f, gemAlpha);
+            shapes.triangle(gx, gy + s2 * 0.72f, gx - s2 * 0.30f, gy + s2 * 0.10f,
+                    gx + s2 * 0.10f, gy + s2 * 0.05f);
+        }
+    }
+
+    // ---- press feedback -------------------------------------------------------------------
+
+    /**
+     * How much taller the world became because the device is narrower than 16:9. The top group
+     * stays anchored to the top edge; everything below the middle rides this offset so the CTA
+     * keeps the same distance from the bottom on a tablet.
+     */
+    private float bottomShift() {
+        return ui.getWorldHeight() - TouchController.UI_HEIGHT;
+    }
+
+    /** Fades the whole screen to white, runs {@code action} under the cover, then fades back. */
+    private void startTransition(Runnable action) {
+        if (fadePhase != 0) return;
+        fadePhase = 1;
+        fadeT = 0f;
+        fadeAction = action;
+    }
+
+    private void updateTransition(float dt) {
+        switch (fadePhase) {
+            case 1:
+                fadeT += dt / 0.65f;
+                if (fadeT >= 1f) {
+                    fadeT = 1f;
+                    fadePhase = 2;
+                    fadeT = 0f;
+                    if (fadeAction != null) {
+                        fadeAction.run();
+                        fadeAction = null;
+                    }
+                }
+                break;
+            case 2:
+                fadeT += dt / 0.15f;
+                if (fadeT >= 1f) {
+                    fadePhase = 3;
+                    fadeT = 0f;
+                }
+                break;
+            case 3:
+                fadeT += dt / 0.65f;
+                if (fadeT >= 1f) {
+                    fadePhase = 0;
+                    fadeT = 0f;
+                }
+                break;
+            default:
+                break;
+        }
+    }
+
+    /** 0..1 opacity of the white cover. */
+    private float fadeCover() {
+        switch (fadePhase) {
+            case 1: return UiAnim.smooth(fadeT);
+            case 2: return 1f;
+            case 3: return 1f - UiAnim.smooth(fadeT);
+            default: return 0f;
+        }
+    }
+
+    private void updateLobby(float dt) {
+
+        updateTransition(dt);
+        if (pulseId >= 0) {
+            pulseT += dt;
+            if (pulseT > 0.50f) pulseId = -1;
+        }
+        lobbyClock += dt;
+        // Touch only: there is no pointer to hover with on a phone, so the state machine is
+        // driven entirely by what is selected.
+        int hover = 0;
+        selectPolice = UiAnim.approach(selectPolice, selectedRole == Role.POLICE ? 1f : 0f, dt, 5.5f);
+        selectThief = UiAnim.approach(selectThief, selectedRole == Role.THIEF ? 1f : 0f, dt, 6f);
+
+        // The switch runs as three beats in both directions: light out, cap turns in the dark,
+        // then the beam grows back out at the same speed it extends when lighting the role up.
+        if (selectedRole == Role.POLICE) {
+            if (toPoliceT < 0f) toPoliceT = 0f;
+            toPoliceT += dt;
+            fromPoliceT = -1f;
+            float darkEnd = 0.14f;
+            float turnEnd = 0.46f;
+            if (toPoliceT < darkEnd) {
+                beamOn = UiAnim.approach(beamOn, 0f, dt, 16f);
+                turn = 0f;
+            } else if (toPoliceT < turnEnd) {
+                beamOn = UiAnim.approach(beamOn, 0f, dt, 16f);
+                turn = UiAnim.clamp01((toPoliceT - darkEnd) / (turnEnd - darkEnd));
+            } else {
+                turn = 1f;
+                beamOn = UiAnim.approach(beamOn, 1f, dt, 2.8f);
+            }
+            idleReach = 0f;
+            idleOn = UiAnim.approach(idleOn, 0f, dt, 8f);
+        } else {
+            toPoliceT = -1f;
+            if (fromPoliceT < 0f) fromPoliceT = 0f;
+            fromPoliceT += dt;
+            turn = 1f - UiAnim.clamp01((fromPoliceT - 0.10f) / 0.32f);
+            if (fromPoliceT < 0.42f) {
+                beamOn = UiAnim.approach(beamOn, 0f, dt, 16f);
+                idleReach = 0f;
+            } else {
+                beamOn = 0f;
+                idleReach = UiAnim.approach(idleReach, 1f, dt, 2.8f);
+            }
+            idleOn = idleReach;
+        }
+
+
+        // LEAVE ROOM's rule: 0.14s up, 0.10s hold, 0.26s back down. One shot, no loop.
+        if (leaveT >= 0f) {
+            leaveT += dt;
+            if (leaveT < 0.14f) {
+                leaveHot = leaveT / 0.14f;
+            } else if (leaveT < 0.30f) {
+                leaveHot = 1f;
+            } else if (leaveT < 0.62f) {
+                leaveHot = 1f - (leaveT - 0.30f) / 0.32f;
+            } else {
+                leaveHot = 0f;
+                leaveT = -1f;
+            }
+            if (leaveQueued && leaveT >= 0.34f) {
+                leaveQueued = false;
+                startTransition(() -> {
+                    touch.clear();
+                    gateway.leaveRoom();
+                });
+            }
+        } else {
+            leaveHot = 0f;
+        }
+
+        for (int i = 0; i < chipFade.length; i++) {
+            chipFade[i] = Math.min(1f, chipFade[i] + dt * 3.4f);
+        }
+
+        if (readyQueued) {
+            readyPress = Math.min(1f, readyPress + dt / 0.35f);
+            if (readyPress >= 1f) {
+                readyQueued = false;
+                startTransition(() -> {
+                    if (!pending("SET_READY")) gateway.setReady(!isSelfReady());
+                });
+            }
+        } else if (fadePhase == 0) {
+            readyPress = UiAnim.approach(readyPress, 0f, dt, 6f);
+        }
+    }
+    private void recordPress(String target) {
+        pressTarget = target;
+        pressAtMs = System.nanoTime() / 1_000_000L;
+    }
+
+    private boolean pressed(String target) {
+        return target.equals(pressTarget) && System.nanoTime() / 1_000_000L - pressAtMs < UiTheme.PRESS_MS;
+    }
+
+    private boolean takenByOther(Role role) {
+        RoomPlayer other = opponentPlayer();
+        return other != null && other.role == role;
     }
 
     private String describe(RoomPlayer player) {
         String role = player.role == null ? "-" : player.role.name();
         String ready = player.ready ? "READY" : "not ready";
         String connection = ConnectionStates.CONNECTED.equals(player.connection) ? "" : "   [" + player.connection + "]";
-        return player.playerId + "   " + role + "   " + ready + connection;
+        // The lobby column has ~300 px: the id is noise, role and state are the useful facts.
+        return role + "  /  " + ready + connection;
     }
 
     private void drawCountdownText() {
+        float w = ui.getWorldWidth();
+        float m = UiTheme.MARGIN;
+        float bs = bottomShift();
         int seconds = room == null ? 0 : (int) Math.ceil(room.countdownRemainingMs / 1000.0);
-        float previous = font.getData().scaleX;
-        font.getData().setScale(6f);
-        font.setColor(Color.WHITE);
-        font.draw(batch, Integer.toString(Math.max(0, seconds)), 610, 500);
-        font.getData().setScale(previous);
-        font.setColor(Color.LIGHT_GRAY);
-        font.draw(batch, "Match starting - input is ignored until the countdown ends.", 60, 240);
-        font.draw(batch, "Remaining " + (room == null ? 0 : room.countdownRemainingMs) + " ms", 60, 200);
+
+        UiDraw.text(batch, fonts.display, "LIGHT \u00b7 CHASE", m, 64f, UiTheme.TEXT, 1.5f);
+        UiDraw.text(batch, fonts.monoBig, "STARTING", m + 2f, PAGE_KICKER, UiTheme.ACCENT, 2.5f);
+
+        String roomLabel = "ROOM  " + (room == null ? "-" : room.roomId);
+        UiDraw.text(batch, fonts.mono, roomLabel,
+                w - m - UiDraw.width(fonts.mono, roomLabel, 1f),
+                64f + (UiDraw.capHeight(fonts.display) - UiDraw.capHeight(fonts.mono)) / 2f,
+                LOBBY_GREY, 1f);
+
+        // The count itself, big enough to read from across the room, under the dots.
+        String count = Integer.toString(Math.max(0, seconds));
+        float cw = UiDraw.width(fonts.huge, count, 4f);
+        UiDraw.text(batch, fonts.huge, count, w / 2f - cw / 2f, 392f, UiTheme.TEXT, 4f);
+
+        String caption = "INPUT IS IGNORED UNTIL THE COUNTDOWN ENDS";
+        UiDraw.text(batch, fonts.mono, caption,
+                w / 2f - UiDraw.width(fonts.mono, caption, 1.5f) / 2f, 546f, LOBBY_GREY, 1.5f);
     }
 
     private void drawMatchText() {
+        float w = ui.getWorldWidth();
+        float m = UiTheme.MARGIN;
         String time = view == null ? "--" : String.format(Locale.ROOT, "%.1f", view.remainingTicks / ticksPerSecond());
         String marks = view == null ? "-" : Integer.toString(view.marks);
         String delivered = view == null ? "-" : Integer.toString(view.deliveredCount);
         String exits = view == null ? "-" : (view.exitsOpen ? "OPEN" : "CLOSED");
-        font.setColor(Color.WHITE);
-        font.draw(batch, "TIME " + time + "s     MARKS " + marks + "/" + data.rules.maxMarks
-                        + "     DELIVERED " + delivered + "/" + data.map.materials.size() + "     EXITS " + exits,
-                30, 672);
+
+        // Header: four facts on the same baseline grid.
+        float col = (w - 2 * m - 3 * GRID_GAP) / 4f;
+        kv(m, 30f, "TIME", time, UiTheme.TEXT);
+        kv(m + col + GRID_GAP, 30f, "MARKS", marks + "/" + data.rules.maxMarks, UiTheme.TEXT);
+        kv(m + 2f * (col + GRID_GAP), 30f, "DELIVERED",
+                delivered + "/" + data.map.materials.size(), UiTheme.TEXT);
+        kv(m + 3f * (col + GRID_GAP), 30f, "EXITS", exits,
+                UiTheme.TEXT);
+
+        String roleLabel = selectedRole == null ? "" : selectedRole.name();
+        UiDraw.text(batch, fonts.mono, roleLabel,
+                w - m - UiDraw.width(fonts.mono, roleLabel, 1.5f), 30f,
+                roleColor(roleLabel), 1.5f);
 
         if (!ConnectionStates.CONNECTED.equals(connectionState)) {
-            font.setColor(new Color(1f, 0.62f, 0.30f, 1f));
-            font.draw(batch, "NET " + connectionState + (connectionDetail.isEmpty() ? "" : " - " + connectionDetail),
-                    700, 640);
+            UiDraw.text(batch, fonts.mono,
+                    "NET  " + connectionState + (connectionDetail.isEmpty() ? "" : "  " + connectionDetail),
+                    m, 108f, UiTheme.ACCENT, 1f);
         }
 
-        font.setColor(quit.active() ? new Color(1f, 0.75f, 0.35f, 1f) : Color.WHITE);
-        font.draw(batch, quit.active() ? "LEAVING ..." : "QUIT MATCH", QUIT_X + 52, QUIT_Y + 34);
-        font.setColor(Color.WHITE);
-
         ThiefPrivate thief = view == null ? null : view.thief;
+        float infoTop = 118f;
         if (thief != null) {
-            font.setColor(Color.LIGHT_GRAY);
             String carried = thief.carriedMaterialId == null ? "none" : thief.carriedMaterialId;
             String protection = thief.protection + (thief.protectionRemainingTicks > 0
                     ? String.format(Locale.ROOT, " %.1fs", thief.protectionRemainingTicks / ticksPerSecond()) : "");
-            font.draw(batch, "CARRIED " + carried + "     PROTECTION " + protection, 30, 636);
+            line("CARRIED", carried, m, infoTop, UiTheme.TEXT);
+            line("PROTECTION", protection, m + 300f, infoTop, UiTheme.TEXT);
+
 
             InteractionTarget chosen = thief.interaction.active != null
                     ? thief.interaction.active : thief.interaction.candidate;
             String target = chosen == null ? "none" : chosen.type + " " + chosen.targetId;
-            font.draw(batch, String.format(Locale.ROOT, "TARGET %s     PROGRESS %d%%     BLOCKED %s",
-                    target, Math.round(interactionProgress() * 100f), thief.interaction.blockedReason), 30, 610);
+            line("TARGET", target, m, infoTop + 44f, UiTheme.TEXT);
+            line("PROGRESS", Math.round(interactionProgress() * 100f) + "%",
+                    m + 300f, infoTop + 44f, UiTheme.TEXT);
+            line("BLOCKED", thief.interaction.blockedReason, m + 470f, infoTop + 44f, LOBBY_GREY);
 
             StringBuilder taken = new StringBuilder();
             for (OriginStatus status : view.originStatus) {
                 if (status.everPicked) {
-                    if (taken.length() > 0) taken.append(" ");
+                    if (taken.length() > 0) taken.append("  ");
                     taken.append(status.materialId);
                 }
             }
-            font.draw(batch, "ORIGINS TAKEN " + (taken.length() == 0 ? "none" : taken), 30, 584);
-            font.draw(batch, "MOVE", 105, 32);
-            font.draw(batch, "HOLD", 1096, 150);
-            font.draw(batch, "DROP", 940, 110);
-        } else {
-            font.setColor(Color.LIGHT_GRAY);
-            font.draw(batch, "Police view: no private thief panel by design.", 30, 610);
-            font.draw(batch, "MOVE", 105, 32);
+            line("ORIGINS TAKEN", taken.length() == 0 ? "none" : taken.toString(), m, infoTop + 88f,
+                    LOBBY_GREY);
         }
-        font.setColor(Color.LIGHT_GRAY);
-        font.draw(batch, "MINIMAP", WorldRenderer.MM_X,
-                WorldRenderer.MM_Y + data.map.height * WorldRenderer.MM_SCALE + 24);
+
+        // Controls: the ring shapes are in the shape pass, these are just their captions.
+        centered(batch, fonts.mono, "MOVE", TouchController.JOY_X,
+                UiTheme.H - TouchController.JOY_Y + TouchController.JOY_R + 14f, LOBBY_GREY, 1.5f);
+        if (selectedRole == Role.THIEF) {
+            centered(batch, fonts.mono, "HOLD", TouchController.HOLD_X,
+                    UiTheme.H - TouchController.HOLD_Y + TouchController.HOLD_R + 14f, LOBBY_GREY, 1.5f);
+            centered(batch, fonts.mono, "DROP", TouchController.DROP_X,
+                    UiTheme.H - TouchController.DROP_Y + TouchController.DROP_R + 14f, LOBBY_GREY, 1.5f);
+        }
         if (view != null) {
-            font.draw(batch, String.format(Locale.ROOT, "POS %.2f, %.2f", view.self.x, view.self.y), 280, 110);
+            UiDraw.text(batch, fonts.mono,
+                    String.format(Locale.ROOT, "POS %.2f, %.2f", view.self.x, view.self.y),
+                    w / 2f - 60f, UiTheme.H - 40f, LOBBY_GREY, 1f);
         }
+
+        // Quit: the same text-only action as the lobby's secondary button.
+        float quitTop = UiTheme.H - QUIT_Y - QUIT_H + (QUIT_H - UiDraw.capHeight(fonts.mono)) / 2f;
+        String quitLabel = quit.active() ? "LEAVING..." : "QUIT MATCH";
+        float quitW = UiDraw.width(fonts.mono, quitLabel, 1.5f);
+        UiDraw.text(batch, fonts.mono, quitLabel, QUIT_X + (QUIT_W - quitW) / 2f, quitTop,
+                quit.active() ? UiTheme.ACCENT : LOBBY_GREY, 1.5f);
+    }
+
+    /** One grey label followed by a white value on the same line; the gap follows the label. */
+    private void line(String label, String value, float x, float top, Color valueColor) {
+        UiDraw.text(batch, fonts.mono, label, x, top, LOBBY_GREY, 1.2f);
+        UiDraw.text(batch, fonts.mono, value, x + UiDraw.width(fonts.mono, label, 1.2f) + 22f, top,
+                valueColor, 0.6f);
     }
 
     private void drawResultText() {
-        font.setColor(Color.WHITE);
-        font.draw(batch, "MATCH RESULT", 60, 620);
+        float w = ui.getWorldWidth();
+        float m = UiTheme.MARGIN;
+        float bs = bottomShift();
+
+        UiDraw.text(batch, fonts.display, "LIGHT \u00b7 CHASE", m, 64f, UiTheme.TEXT, 1.5f);
+        UiDraw.text(batch, fonts.monoBig, "RESULT", m + 2f, PAGE_KICKER, UiTheme.ACCENT, 2.5f);
+
         if (result == null) {
-            font.draw(batch, "Waiting for the result message ...", 60, 560);
+            UiDraw.text(batch, fonts.mono, "WAITING FOR THE RESULT MESSAGE", m, 220f, LOBBY_GREY, 1.5f);
             return;
         }
+
         boolean noWinner = result.winner == null;
         boolean iWon = !noWinner && result.winner == selectedRole;
-        font.setColor(noWinner ? new Color(0.85f, 0.86f, 0.88f, 1f)
-                : iWon ? new Color(0.55f, 0.95f, 0.45f, 1f) : new Color(0.95f, 0.55f, 0.50f, 1f));
-        font.draw(batch, "WINNER  " + (noWinner ? "NONE (both players left)" : result.winner.name()), 60, 570);
-        font.setColor(Color.WHITE);
-        font.draw(batch, "YOUR RESULT  " + (noWinner ? "NO DECISION" : (iWon ? "WIN" : "LOSS"))
-                + "   (you are " + selectedRole + ")", 60, 530);
-        font.draw(batch, "REASON  " + result.reason, 60, 490);
-        font.draw(batch, "MARKS  " + result.marks + "/" + data.rules.maxMarks, 60, 450);
-        font.draw(batch, "DELIVERED  " + result.deliveredCount + "/" + data.map.materials.size(), 60, 410);
-        font.draw(batch, String.format(Locale.ROOT, "ELAPSED  %.1fs", result.elapsedTicks / ticksPerSecond()), 60, 370);
-        font.draw(batch, "BACK TO LOBBY", 150, 304);
-        font.setColor(Color.LIGHT_GRAY);
-        font.draw(batch, "Result id " + result.resultId + "   match " + result.matchId, 60, 180);
+
+        // The outcome, at masthead size: this is the one line that must be read first.
+        String headline = noWinner ? "DRAW" : result.winner.name() + " WINS";
+        UiDraw.text(batch, fonts.display, headline, m, 210f,
+                noWinner ? LOBBY_GREY : UiTheme.TEXT, 1.5f);
+        UiDraw.text(batch, fonts.monoBig, noWinner ? "NO DECISION" : (iWon ? "YOU WIN" : "YOU LOSE"),
+                m + 2f, 262f, noWinner ? LOBBY_GREY : UiTheme.ACCENT, 2.5f);
+
+        // Who was who, on the chip grid.
+        float colW = (w - 2 * m - GRID_GAP) / 2f;
+        chip(m, 300f, colW, BOX_H, "YOU", selectedRole == null ? "-" : selectedRole.name());
+        chip(m + colW + GRID_GAP, 300f, colW, BOX_H, "WINNER",
+                result.winner == null ? "NONE" : result.winner.name());
+
+        // Facts, evenly spaced.
+        float col4 = (w - 2 * m - 3 * GRID_GAP) / 4f;
+        kv(m, 402f, "REASON", String.valueOf(result.reason), UiTheme.TEXT);
+        kv(m + col4 + GRID_GAP, 402f, "MARKS", result.marks + "/" + data.rules.maxMarks, UiTheme.TEXT);
+        kv(m + 2f * (col4 + GRID_GAP), 402f, "DELIVERED",
+                result.deliveredCount + "/" + data.map.materials.size(), UiTheme.TEXT);
+        kv(m + 3f * (col4 + GRID_GAP), 402f, "ELAPSED",
+                String.format(Locale.ROOT, "%.1fs", result.elapsedTicks / ticksPerSecond()),
+                UiTheme.TEXT);
+
+        primaryButton(m, RESULT_ACTION_TOP + bs, 300f, CTA_H, "BACK TO LOBBY",
+                !pending("RETURN_LOBBY"));
+
+        UiDraw.text(batch, fonts.mono,
+                "RESULT " + result.resultId + "   MATCH " + result.matchId,
+                m, 652f + bs, LOBBY_GREY, 1f);
     }
 
     // ---------------------------------------------------------------- helpers
