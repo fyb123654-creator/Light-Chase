@@ -305,19 +305,30 @@ final class WorldRenderer {
         shapes.circle(x, y, 0.42f, 28);
 
         if (role == Role.POLICE) {
-            // Brim: a wedge in front of the cap, the menu icon's most recognisable shape.
-            shapes.setColor(0.24f, 0.44f, 0.62f, 1f);
-            shapes.triangle(x + c * 0.10f + px * 0.19f, y + s * 0.10f + py * 0.19f,
-                    x + c * 0.10f - px * 0.19f, y + s * 0.10f - py * 0.19f,
-                    x + c * 0.56f, y + s * 0.56f);
+            // Same construction as the lobby icon: a white rim, the cap on top of it, then the
+            // lamp as a small rounded protrusion pointing where the officer is looking.
+            shapes.setColor(0.86f, 0.86f, 0.90f, 1f);
+            shapes.circle(x, y, 0.31f, 28);
             shapes.setColor(SELF_POLICE);
-            shapes.circle(x, y, 0.30f, 28);
+            shapes.circle(x, y, 0.28f, 28);
             shapes.setColor(0.20f, 0.42f, 0.62f, 1f);
-            shapes.circle(x, y, 0.21f, 24);
+            shapes.circle(x, y, 0.19f, 24);
             shapes.setColor(0.88f, 0.95f, 1f, 1f);
-            shapes.circle(x, y, 0.11f, 20);
+            shapes.circle(x, y, 0.10f, 20);
             shapes.setColor(1f, 1f, 1f, 1f);
-            shapes.circle(x, y, 0.05f, 14);
+            shapes.circle(x, y, 0.045f, 14);
+
+            float lx = x + c * 0.30f;
+            float ly = y + s * 0.30f;
+            float nx = x + c * 0.22f;
+            float ny = y + s * 0.22f;
+            shapes.setColor(0.30f, 0.33f, 0.38f, 1f);
+            shapes.rectLine(nx, ny, lx, ly, 0.05f);
+            shapes.circle(nx, ny, 0.025f, 12);
+            shapes.setColor(0.70f, 0.74f, 0.79f, 1f);
+            shapes.circle(lx, ly, 0.065f, 16);
+            shapes.setColor(1f, 1f, 0.96f, 0.95f);
+            shapes.circle(lx, ly, 0.038f, 12);
         } else {
             // Scarf tails stream out behind the hood.
             shapes.setColor(SELF_THIEF);
