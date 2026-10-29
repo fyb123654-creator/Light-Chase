@@ -1355,41 +1355,61 @@ public final class LightChaseApp extends ApplicationAdapter {
      */
     private void lobbyPoliceIcon(ShapeRenderer shapes, float cx, float cy) {
         float sel = UiAnim.smooth(selectPolice);
-        float wander = UiAnim.sway(lobbyClock, 0.9f) * 0.55f;
-        float angle = UiAnim.lerp(wander, (float) Math.PI, UiAnim.smooth(turn));
+        // Unselected: the lamp is off and the cap simply faces the role name. Selected: the lamp
+        // comes on and the head sweeps side to side, looking around.
+        float sweep = UiAnim.sway(lobbyClock, 0.9f) * 0.20f * sel;
+        float angle = (float) Math.PI + sweep;
 
-        float lx = cx + (float) Math.cos(angle) * (ICON_R + 2f);
-        float ly = cy + (float) Math.sin(angle) * (ICON_R + 2f);
+        float lx = cx + (float) Math.cos(angle) * (ICON_R - 1f);
+        float ly = cy + (float) Math.sin(angle) * (ICON_R - 1f);
 
         if (beamOn > 0.01f) {
             beamToText(shapes, lx, ly, angle, beamOn);
-        } else if (idleReach > 0.01f) {
-            // idle sweep: extends out of the lens at the same rate the aimed beam does
-            float reach = 120f * idleReach;
-            float idle = 0.45f * idleReach;
-            gradTri(shapes, lx, ly, idle,
-                    lx + (float) Math.cos(angle - 0.26f) * reach,
-                    ly + (float) Math.sin(angle - 0.26f) * reach, 0.02f * idleReach,
-                    lx + (float) Math.cos(angle + 0.26f) * reach,
-                    ly + (float) Math.sin(angle + 0.26f) * reach, 0.02f * idleReach);
         }
 
-        // flashlight: short barrel and a lens at the front
-        float bx = cx + (float) Math.cos(angle) * 6f;
-        float by = cy + (float) Math.sin(angle) * 6f;
+        // Rim: the same diameter as the thief's, with a bite taken out where the flashlight is,
+        // so the barrel can stick through without the two shapes cutting into each other.
+        policeRim(shapes, cx, cy, ICON_R, angle, 0.30f);
+
+        // barrel and lens, drawn after the rim so they sit on top of the gap
+        float bx = cx + (float) Math.cos(angle) * 5f;
+        float by = cy + (float) Math.sin(angle) * 5f;
         shapes.setColor(0.30f, 0.33f, 0.38f, 1f);
-        shapes.rectLine(bx, by, lx, ly, 13f);
+        shapes.rectLine(bx, by, lx, ly, 12f);
         shapes.setColor(0.64f, 0.67f, 0.72f, 1f);
-        shapes.circle(lx, ly, 8f, 18);
+        shapes.circle(lx, ly, 7.5f, 18);
         shapes.setColor(1f, 1f, 0.96f, 0.20f + 0.80f * beamOn);
-        shapes.circle(lx, ly, 5f, 16);
+        shapes.circle(lx, ly, 4.6f, 16);
 
         policeCap(shapes, cx, cy);
     }
 
+    /**
+     * White ring of the given radius with a gap centred on {@code gapAngle}. Drawn as overlapping
+     * capsules rather than a full circle so the gap is a real bite, not an overlay.
+     */
+    private void policeRim(ShapeRenderer shapes, float cx, float cy, float r, float gapAngle,
+                           float gap) {
+        float thickness = 3.4f;
+        int steps = 72;
+        float from = gapAngle + gap;
+        float to = gapAngle + (float) Math.PI * 2f - gap;
+        float px = 0f;
+        float py = 0f;
+        shapes.setColor(1f, 1f, 1f, 1f);
+        for (int i = 0; i <= steps; i++) {
+            float a = from + (to - from) * i / steps;
+            float x = cx + (float) Math.cos(a) * r;
+            float y = cy + (float) Math.sin(a) * r;
+            if (i > 0) shapes.rectLine(px, py, x, y, thickness);
+            px = x;
+            py = y;
+        }
+    }
+
     /** The beam: bright at the lens, fading out along its length, tapering to a soft end. */
     private void beamToText(ShapeRenderer shapes, float lx, float ly, float angle, float on) {
-        float full = 300f;
+        float full = 258f;
         float reach = full * on;
         float half = 0.30f;
         float nearAlpha = 0.90f * on;
@@ -1407,24 +1427,26 @@ public final class LightChaseApp extends ApplicationAdapter {
 
     /** Cap seen from above: crown, peak in front, badge on top. */
     private void policeCap(ShapeRenderer shapes, float cx, float cy) {
-        shapes.setColor(CAP_DARK.r, CAP_DARK.g, CAP_DARK.b, 0.22f);
-        shapes.circle(cx, cy, ICON_R + 4f, 32);
+        final float r = ICON_R - 5f;          // leaves room for the rim outside it
+
+        shapes.setColor(CAP_DARK.r, CAP_DARK.g, CAP_DARK.b, 0.20f);
+        shapes.circle(cx, cy, r + 3f, 32);
 
         // peak, straight in front of the crown (left) and short, so it does not stick out below
         shapes.setColor(0.34f, 0.52f, 0.64f, 1f);
-        shapes.rectLine(cx - ICON_R * 0.92f, cy + 2f, cx + 4f, cy + 2f, 11f);
+        shapes.rectLine(cx - r * 0.92f, cy + 2f, cx + 3f, cy + 2f, 10f);
 
         shapes.setColor(CAP_BLUE);
-        shapes.circle(cx, cy + 2f, ICON_R, 32);
+        shapes.circle(cx, cy + 1f, r, 32);
         shapes.setColor(0.44f, 0.62f, 0.73f, 1f);
-        shapes.circle(cx, cy + 4f, ICON_R * 0.74f, 30);
+        shapes.circle(cx, cy + 3f, r * 0.74f, 30);
         shapes.setColor(CAP_BLUE);
-        shapes.circle(cx, cy + 2f, ICON_R * 0.56f, 28);
+        shapes.circle(cx, cy + 1f, r * 0.56f, 28);
 
         shapes.setColor(0.92f, 0.97f, 1f, 1f);
-        shapes.circle(cx, cy + 3f, 6.5f, 18);
+        shapes.circle(cx, cy + 2f, 6f, 18);
         shapes.setColor(0.30f, 0.47f, 0.58f, 1f);
-        shapes.circle(cx, cy + 3f, 3.6f, 14);
+        shapes.circle(cx, cy + 2f, 3.3f, 14);
     }
 
     /** Triangle with a different alpha at each vertex: the whole gradient without stair steps. */
@@ -1647,39 +1669,12 @@ public final class LightChaseApp extends ApplicationAdapter {
         selectPolice = UiAnim.approach(selectPolice, selectedRole == Role.POLICE ? 1f : 0f, dt, 5.5f);
         selectThief = UiAnim.approach(selectThief, selectedRole == Role.THIEF ? 1f : 0f, dt, 6f);
 
-        // The switch runs as three beats in both directions: light out, cap turns in the dark,
-        // then the beam grows back out at the same speed it extends when lighting the role up.
+        // The lamp is simply on or off. The head keeps facing the role name either way; only the
+        // sweep above needs a selection.
         if (selectedRole == Role.POLICE) {
-            if (toPoliceT < 0f) toPoliceT = 0f;
-            toPoliceT += dt;
-            fromPoliceT = -1f;
-            float darkEnd = 0.14f;
-            float turnEnd = 0.46f;
-            if (toPoliceT < darkEnd) {
-                beamOn = UiAnim.approach(beamOn, 0f, dt, 16f);
-                turn = 0f;
-            } else if (toPoliceT < turnEnd) {
-                beamOn = UiAnim.approach(beamOn, 0f, dt, 16f);
-                turn = UiAnim.clamp01((toPoliceT - darkEnd) / (turnEnd - darkEnd));
-            } else {
-                turn = 1f;
-                beamOn = UiAnim.approach(beamOn, 1f, dt, 2.8f);
-            }
-            idleReach = 0f;
-            idleOn = UiAnim.approach(idleOn, 0f, dt, 8f);
+            beamOn = UiAnim.approach(beamOn, 1f, dt, 3.2f);
         } else {
-            toPoliceT = -1f;
-            if (fromPoliceT < 0f) fromPoliceT = 0f;
-            fromPoliceT += dt;
-            turn = 1f - UiAnim.clamp01((fromPoliceT - 0.10f) / 0.32f);
-            if (fromPoliceT < 0.42f) {
-                beamOn = UiAnim.approach(beamOn, 0f, dt, 16f);
-                idleReach = 0f;
-            } else {
-                beamOn = 0f;
-                idleReach = UiAnim.approach(idleReach, 1f, dt, 2.8f);
-            }
-            idleOn = idleReach;
+            beamOn = UiAnim.approach(beamOn, 0f, dt, 9f);
         }
 
 
