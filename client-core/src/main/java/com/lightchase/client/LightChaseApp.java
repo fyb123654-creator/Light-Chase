@@ -421,13 +421,40 @@ public final class LightChaseApp extends ApplicationAdapter {
         // notice line with steps the player never took.
         if ("HELLO".equals(s.action) || "JOIN_ROOM".equals(s.action) || "HEARTBEAT".equals(s.action)) return;
         quit.onControl(s.action, s.state);
-        notice = s.action + ": " + s.state + (s.errorCode == null ? "" : " (" + s.errorCode + ")");
-        if (s.state == ControlStatus.State.FAILED) errorText = s.action + " failed: " + s.errorCode;
-        if (s.state == ControlStatus.State.TIMED_OUT) errorText = s.action + " timed out";
-        if (s.state == ControlStatus.State.SUCCEEDED) errorText = "";
+        // Only failures are worth a line. A successful SELECT_ROLE is already visible as the
+        // highlighted role row - printing "SELECT_ROLE: SUCCEEDED" under it says nothing.
+        switch (s.state) {
+            case SUCCEEDED:
+                errorText = "";
+                notice = "";
+                break;
+            case FAILED:
+                errorText = "";
+                notice = readableError(s.errorCode);
+                break;
+            case TIMED_OUT:
+                errorText = "";
+                notice = "THE SERVER DID NOT ANSWER";
+                break;
+            default:
+                break;
+        }
     }
 
     private boolean pending(String action) { return pendingControls.contains(action); }
+
+    /** Server error codes are shouting identifiers; the notice line speaks in sentences. */
+    private static String readableError(String code) {
+        if (code == null || code.isEmpty()) return "THAT DID NOT WORK";
+        switch (code) {
+            case "ROLE_TAKEN": return "THAT ROLE IS TAKEN";
+            case "ROOM_FULL": return "THE ROOM IS FULL";
+            case "NOT_CONNECTED": return "NOT CONNECTED";
+            case "INVALID_PHASE": return "NOT AVAILABLE RIGHT NOW";
+            case "INVALID_STATE": return "NOT AVAILABLE RIGHT NOW";
+            default: return code.replace('_', ' ');
+        }
+    }
 
     /**
      * Clears every per-connection artifact. Shared by disconnect, fatal error, transport switch and
