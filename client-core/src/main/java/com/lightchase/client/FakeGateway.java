@@ -405,7 +405,10 @@ public final class FakeGateway implements ClientGateway {
                 ? new ThiefPrivate(carrying, protection, protectionTicks, ground, deliveredIds, interactionView())
                 : null;
 
-        int remaining = (int) Math.max(0, data.rules.durationTicks - tick);
+        // The demo ends at DEMO_MATCH_SECONDS, so that is the clock the HUD must show. Reporting
+        // the rule's durationTicks here would promise 180 s and then finish at 12.
+        int remaining = (int) Math.max(0,
+                Math.round((DEMO_MATCH_SECONDS - matchSeconds) * data.rules.tickRate));
         listener.onView(new PlayerView(MATCH_ID, tick, tick * 33L, 0, selfRole, remaining, marks, delivered,
                 exitsOpen, new ActorPose(SELF_ID, x, y, headingRad), visibleOpponent(), origins, thief));
     }

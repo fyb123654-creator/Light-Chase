@@ -134,7 +134,9 @@ public class FakeGatewayTest {
         g.advance(2.5f);
         assertEquals(RoomPhase.RUNNING, g.phase());
         assertNotNull(l.view);
-        assertEquals(5400, l.view.remainingTicks);
+        // The fixture plays a shortened demo, so the view must report that clock and not the rule's
+        // 5400 ticks: the HUD reads this field, and a demo that ends at 12 s may not promise 180.
+        assertEquals(360, l.view.remainingTicks, 2);
     }
 
     @Test public void unreadyCancelsTheCountdownAndRestoresTheLobby() {

@@ -127,6 +127,8 @@ public final class LightChaseApp extends ApplicationAdapter {
     /** Which secondary action is mid-pulse, and how far along. */
     /** Set when the lobby must show "nothing chosen" until the player taps a role. */
     private boolean suppressRoomRole = true;
+    /** A page changed while a press animation was still running: cover once it ends. */
+    private boolean coverPending;
     /** 0..1: how far the READY button has faded in (it only exists once a role is picked). */
     private float readyReveal;
     /** Button wash states: 0 = CONNECT, 1 = BACK TO LOBBY. */
@@ -142,7 +144,6 @@ public final class LightChaseApp extends ApplicationAdapter {
     /** Screen transitions: fade to white, run the action, fade back from white. */
     private int fadePhase;      // 0 idle, 1 out, 2 hold, 3 in
     private float fadeT;
-    private Runnable fadeAction;
     /** Per-chip cross-fade: previous value, current value, and the blend between them. */
     private final String[] chipShown = new String[4];
     private final String[] chipPrev = new String[4];
@@ -668,9 +669,11 @@ public final class LightChaseApp extends ApplicationAdapter {
         Page page = page();
         if (page != lastPage) {
             // Every page change is covered by white: no page ever appears with a hard cut.
+            // If a press animation is still running, the cover waits for it so the player sees
+            // their own press finish before the scene changes.
             if (fadePhase == 0 && lastPage != null) {
-                fadePhase = 2;
-                fadeT = 0f;
+                if (washing()) coverPending = true;
+                else coverNow();
             }
             // Coming back from a match: the role is not a property of the room any more than it is
             // of the player, so the lobby asks again, exactly like the first time.
@@ -1476,28 +1479,29 @@ public final class LightChaseApp extends ApplicationAdapter {
         return ui.getWorldHeight() - TouchController.UI_HEIGHT;
     }
 
-    /** Fades the whole screen to white, runs {@code action} under the cover, then fades back. */
-    private void startTransition(Runnable action) {
+    /**
+     * Covers the screen with white. Only page changes do this: a press is a personal action whose
+     * result the player must be able to see, while the white screen hides a change of scene, which
+     * in a real match is decided by the room (both players ready, both returned) and not by one
+     * player's tap.
+     */
+    private void coverNow() {
         if (fadePhase != 0) return;
-        fadePhase = 1;
+        fadePhase = 2;
         fadeT = 0f;
-        fadeAction = action;
+    }
+
+    /** True while a press animation still owns the screen. */
+    private boolean washing() {
+        if (readyQueued) return true;
+        for (boolean w : washing) {
+            if (w) return true;
+        }
+        return false;
     }
 
     private void updateTransition(float dt) {
         switch (fadePhase) {
-            case 1:
-                fadeT += dt / 0.65f;
-                if (fadeT >= 1f) {
-                    fadeT = 1f;
-                    fadePhase = 2;
-                    fadeT = 0f;
-                    if (fadeAction != null) {
-                        fadeAction.run();
-                        fadeAction = null;
-                    }
-                }
-                break;
             case 2:
                 fadeT += dt / 0.15f;
                 if (fadeT >= 1f) {
@@ -1530,17 +1534,26 @@ public final class LightChaseApp extends ApplicationAdapter {
     private void updateLobby(float dt) {
 
         updateTransition(dt);
+        if (coverPending && !washing()) {
+            coverPending = false;
+            coverNow();
+        }
         readyReveal = UiAnim.approach(readyReveal, selectedRole == null ? 0f : 1f, dt, 4.5f);
         for (int i = 0; i < wash.length; i++) {
             if (!washing[i]) continue;
             wash[i] = Math.min(1f, wash[i] + dt / 0.35f);
             if (wash[i] >= 1f) {
-                // The button goes back to navy at once: the white cover is already opaque, so the
-                // reset is invisible here and the button is normal again next time it is shown.
+                // The wash is a local acknowledgement, nothing more: it stops here and the request
+                // goes out. Whether the screen turns white depends on the room answering, which in
+                // a real match may need the other player too.
                 washing[i] = false;
                 wash[i] = 0f;
-                if (i == 0) startTransition(this::connect);
-                else startTransition(() -> { touch.clear(); gateway.returnToLobby(); });
+                if (i == 0) {
+                    connect();
+                } else {
+                    touch.clear();
+                    gateway.returnToLobby();
+                }
             }
         }
         if (pulseId >= 0) {
@@ -1605,10 +1618,8 @@ public final class LightChaseApp extends ApplicationAdapter {
             }
             if (leaveQueued && leaveT >= 0.34f) {
                 leaveQueued = false;
-                startTransition(() -> {
-                    touch.clear();
-                    gateway.leaveRoom();
-                });
+                touch.clear();
+                gateway.leaveRoom();
             }
         } else {
             leaveHot = 0f;
@@ -1623,9 +1634,7 @@ public final class LightChaseApp extends ApplicationAdapter {
             if (readyPress >= 1f) {
                 readyQueued = false;
                 readyPress = 0f;   // same reason as the washes: never come back pre-whitened
-                startTransition(() -> {
-                    if (!pending("SET_READY")) gateway.setReady(!isSelfReady());
-                });
+                if (!pending("SET_READY")) gateway.setReady(!isSelfReady());
             }
         } else if (fadePhase == 0) {
             readyPress = UiAnim.approach(readyPress, 0f, dt, 6f);
