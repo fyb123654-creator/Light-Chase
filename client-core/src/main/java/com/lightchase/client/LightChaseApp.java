@@ -1354,12 +1354,11 @@ public final class LightChaseApp extends ApplicationAdapter {
      * beam is strongest at the lens.
      */
     private void lobbyPoliceIcon(ShapeRenderer shapes, float cx, float cy) {
-        float sel = UiAnim.smooth(selectPolice);
-        // Two resting poses. Not chosen: the head is turned towards the role name it belongs to,
-        // sweeping gently around it, with the lamp off. Chosen: it relaxes and looks around away
-        // from the text - the beam must never wash over "POLICE".
-        float base = UiAnim.lerp((float) Math.PI, 0.12f, sel);
-        float sway = UiAnim.sway(lobbyClock, 0.75f) * (0.16f + 0.12f * sel);
+        // Two resting poses. Not chosen: the head is turned towards the role name, sweeping gently
+        // around it, lamp off. Chosen: it turns away first and only then switches the lamp on.
+        float facing = UiAnim.smooth(turn);
+        float base = UiAnim.lerp((float) Math.PI, 0.12f, facing);
+        float sway = UiAnim.sway(lobbyClock, 0.75f) * (0.16f + 0.12f * facing);
         float angle = base + sway;
 
         float c = (float) Math.cos(angle);
@@ -1380,25 +1379,26 @@ public final class LightChaseApp extends ApplicationAdapter {
 
         policeCap(shapes, cx, cy, angle);
 
-        // The lamp is part of the silhouette, not an outline: it is drawn after the rim and simply
-        // overlaps it, the way the thief's scarf overlaps its hood.
-        float bx = cx + c * 6f;
-        float by = cy + s * 6f;
+        // The lamp is a smooth bump, not a barrel: a rounded neck and one lens, drawn after the rim
+        // so it simply overlaps it the way the thief's scarf overlaps its hood.
+        float nx = cx + c * (ICON_R - 5f);
+        float ny = cy + s * (ICON_R - 5f);
         shapes.setColor(0.30f, 0.33f, 0.38f, 1f);
-        shapes.rectLine(bx, by, lx, ly, 12f);
+        shapes.rectLine(nx, ny, lx, ly, 7f);
+        shapes.circle(nx, ny, 3.5f, 16);
         shapes.setColor(0.64f, 0.67f, 0.72f, 1f);
-        shapes.circle(lx, ly, 7.5f, 18);
-        shapes.setColor(1f, 1f, 0.96f, 0.20f + 0.80f * beamOn);
-        shapes.circle(lx, ly, 4.6f, 16);
+        shapes.circle(lx, ly, 6.2f, 20);
+        shapes.setColor(1f, 1f, 0.96f, 0.18f + 0.82f * beamOn);
+        shapes.circle(lx, ly, 3.8f, 16);
     }
 
     /** The beam: bright at the lens, fading out along its length, tapering to a soft end. */
     private void beamToText(ShapeRenderer shapes, float lx, float ly, float angle, float on) {
-        float full = 232f;
+        float full = 120f;
         float reach = full * on;
         float half = 0.30f;
-        float nearAlpha = 0.90f * on;
-        float farAlpha = 0.10f * on;
+        float nearAlpha = 0.45f * on;
+        float farAlpha = 0.02f * on;
 
         float ex = lx + (float) Math.cos(angle) * reach;
         float ey = ly + (float) Math.sin(angle) * reach;
@@ -1653,12 +1653,22 @@ public final class LightChaseApp extends ApplicationAdapter {
         selectPolice = UiAnim.approach(selectPolice, selectedRole == Role.POLICE ? 1f : 0f, dt, 5.5f);
         selectThief = UiAnim.approach(selectThief, selectedRole == Role.THIEF ? 1f : 0f, dt, 6f);
 
-        // The lamp is simply on or off. The head keeps facing the role name either way; only the
-        // sweep above needs a selection.
+        // Three beats, in both directions: turn the head first, then switch the lamp on. Lighting
+        // before the head has moved would shine the torch at whatever the cap happened to face.
         if (selectedRole == Role.POLICE) {
-            beamOn = UiAnim.approach(beamOn, 1f, dt, 3.2f);
+            if (toPoliceT < 0f) toPoliceT = 0f;
+            toPoliceT += dt;
+            fromPoliceT = -1f;
+            turn = UiAnim.clamp01((toPoliceT - 0.08f) / 0.30f);
+            beamOn = toPoliceT > 0.40f
+                    ? UiAnim.approach(beamOn, 1f, dt, 3.4f)
+                    : UiAnim.approach(beamOn, 0f, dt, 18f);
         } else {
-            beamOn = UiAnim.approach(beamOn, 0f, dt, 9f);
+            toPoliceT = -1f;
+            if (fromPoliceT < 0f) fromPoliceT = 0f;
+            fromPoliceT += dt;
+            beamOn = UiAnim.approach(beamOn, 0f, dt, 16f);
+            turn = 1f - UiAnim.clamp01((fromPoliceT - 0.04f) / 0.28f);
         }
 
 
