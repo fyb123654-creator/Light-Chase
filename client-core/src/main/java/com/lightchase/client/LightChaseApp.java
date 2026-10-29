@@ -1359,7 +1359,9 @@ public final class LightChaseApp extends ApplicationAdapter {
         // to have - a wide, gentle sway and a short soft cone.
         float facing = UiAnim.smooth(turn);
         float base = UiAnim.lerp((float) Math.PI, 0f, facing);
-        float wander = UiAnim.sway(lobbyClock, 0.9f) * 0.55f * facing;
+        // The head always sweeps; only the centre of the sweep moves. Idle keeps it around the
+        // role name, chosen turns it away and widens the arc.
+        float wander = UiAnim.sway(lobbyClock, 0.9f) * (0.22f + 0.33f * facing);
         float angle = base + wander;
 
         float c = (float) Math.cos(angle);
