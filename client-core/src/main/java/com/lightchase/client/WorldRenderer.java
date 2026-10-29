@@ -11,6 +11,9 @@ import com.lightchase.contracts.*;
 import com.lightchase.contracts.geometry.WorldGeometry;
 import com.lightchase.data.DataFiles;
 
+import java.util.HashSet;
+import java.util.Set;
+
 /**
  * Draws the match world: map, wall-clipped police beam, actors, and the minimap.
  *
@@ -18,9 +21,11 @@ import com.lightchase.data.DataFiles;
  * is computed with {@link WorldGeometry#segmentBlocked} so the drawn cone and the server's judgement
  * come from one implementation.
  *
- * <p>Art direction is deliberately separate from the menu: the menu is pure black and white, while
- * the match is a dark room seen from above - deep blue floor, slate walls, one warm beam, and
- * role-coloured actors. Both share the same restraint: no gradients, no shadows, few colours.
+ * <p><b>Art direction.</b> The menu is flat black and white; the match is a lit room seen from
+ * above. What makes a top-down tile room read well is not texture detail but four things, all of
+ * which are geometry here: per-tile value variation so a large floor is never one flat slab; a wall
+ * with a top face and a side face; a dark outline wherever geometry meets floor; and a light source
+ * that gives the eye somewhere to rest. Everything below is procedural.
  */
 final class WorldRenderer {
 
@@ -31,20 +36,20 @@ final class WorldRenderer {
     static final float MM_Y = 372f;
     static final float MM_SCALE = 10f;
 
-    // Match palette.
-    private static final Color FLOOR = new Color(0.043f, 0.063f, 0.090f, 1f);   // #0B1017
-    private static final Color GRID = new Color(1f, 1f, 1f, 0.035f);
-    private static final Color WALL = new Color(0.110f, 0.157f, 0.212f, 1f);   // #1C2836
-    private static final Color WALL_EDGE = new Color(0.165f, 0.231f, 0.306f, 1f);
-    private static final Color DROP = new Color(0.165f, 0.663f, 0.549f, 1f);   // teal
-    private static final Color EXIT_SHUT = new Color(0.420f, 0.325f, 0.125f, 1f);
-    private static final Color EXIT_OPEN = new Color(0.941f, 0.706f, 0.161f, 1f);
-    private static final Color MATERIAL = new Color(0.941f, 0.706f, 0.161f, 1f);
+    // ---- palette -------------------------------------------------------------------------
+    private static final Color FLOOR = new Color(0.055f, 0.075f, 0.098f, 1f);   // #0E1319
+    private static final Color FLOOR_EDGE = new Color(0.035f, 0.047f, 0.063f, 1f);
+    private static final Color WALL_TOP = new Color(0.169f, 0.212f, 0.259f, 1f);   // #2B3642
+    private static final Color WALL_FACE = new Color(0.106f, 0.137f, 0.173f, 1f);  // #1B232C
+    private static final Color WALL_LINE = new Color(0.031f, 0.043f, 0.055f, 1f);
+    private static final Color DROP = new Color(0.180f, 0.690f, 0.569f, 1f);
+    private static final Color EXIT_SHUT = new Color(0.400f, 0.310f, 0.125f, 1f);
+    private static final Color EXIT_OPEN = new Color(0.965f, 0.729f, 0.184f, 1f);
+    private static final Color MATERIAL = new Color(0.949f, 0.741f, 0.239f, 1f);
     private static final Color BEAM = new Color(1f, 0.925f, 0.741f, 1f);
     private static final Color SELF_POLICE = new Color(0.435f, 0.718f, 0.910f, 1f);
     private static final Color SELF_THIEF = new Color(0.878f, 0.416f, 0.353f, 1f);
     private static final Color FOE = new Color(0.882f, 0.278f, 0.278f, 1f);
-    private static final Color INK = new Color(0.020f, 0.031f, 0.043f, 1f);
 
     private final ShapeRenderer shapes;
     private final OrthographicCamera worldCamera;
@@ -54,6 +59,7 @@ final class WorldRenderer {
     private final DataFiles data;
     private final float[] beamX = new float[BEAM_RAYS];
     private final float[] beamY = new float[BEAM_RAYS];
+    private final Set<Long> wallCells = new HashSet<Long>();
 
     WorldRenderer(ShapeRenderer shapes, OrthographicCamera worldCamera, OrthographicCamera uiCamera,
                   FitViewport worldViewport, Viewport uiViewport, DataFiles data) {
@@ -63,6 +69,15 @@ final class WorldRenderer {
         this.worldViewport = worldViewport;
         this.uiViewport = uiViewport;
         this.data = data;
+        for (WallCell wall : data.map.walls) wallCells.add(key(wall.col, wall.row));
+    }
+
+    private static long key(int col, int row) {
+        return ((long) col << 32) ^ (row & 0xffffffffL);
+    }
+
+    private boolean isWall(int col, int row) {
+        return wallCells.contains(key(col, row));
     }
 
     void renderWorld(PlayerView view, ViewInterpolator interpolator) {
@@ -77,7 +92,10 @@ final class WorldRenderer {
         shapes.setProjectionMatrix(worldCamera.combined);
         shapes.begin(ShapeRenderer.ShapeType.Filled);
 
+        drawFrame();
         drawFloor();
+        drawFloorDecals();
+        drawLightPools(view);
         drawWalls();
         if (view != null) drawBeam(view);
         drawPoints(view);
@@ -87,55 +105,171 @@ final class WorldRenderer {
         Gdx.gl.glDisable(GL20.GL_BLEND);
     }
 
-    /** Floor plus a one-unit grid; the grid is what makes movement readable. */
-    private void drawFloor() {
+    // ---- environment ---------------------------------------------------------------------
+
+    /** Outer dark band: the room reads as carved out of the void rather than floating. */
+    private void drawFrame() {
+        float w = data.map.width;
+        float h = data.map.height;
+        // A wide, slightly lighter skirt: the room is a lit floor inside a dim building, not a
+        // rectangle floating in pure black (which is what the menu background looks like).
+        shapes.setColor(0.045f, 0.055f, 0.068f, 1f);
+        shapes.rect(-60f, -60f, w + 120f, h + 120f);
+        shapes.setColor(FLOOR_EDGE);
+        shapes.rect(-4f, -4f, w + 8f, h + 8f);
+        shapes.setColor(WALL_LINE);
+        shapes.rect(-0.9f, -0.9f, w + 1.8f, h + 1.8f);
+        shapes.setColor(1f, 1f, 1f, 0.05f);
+        shapes.rect(-0.55f, -0.55f, w + 1.1f, h + 1.1f);
         shapes.setColor(FLOOR);
-        shapes.rect(0, 0, data.map.width, data.map.height);
-        shapes.setColor(GRID);
-        for (int x = 1; x < data.map.width; x++) shapes.rect(x - 0.01f, 0, 0.02f, data.map.height);
-        for (int y = 1; y < data.map.height; y++) shapes.rect(0, y - 0.01f, data.map.width, 0.02f);
+        shapes.rect(0f, 0f, w, h);
     }
 
-    private void drawWalls() {
-        shapes.setColor(WALL);
-        for (WallCell wall : data.map.walls) shapes.rect(wall.col, wall.row, 1f, 1f);
-        // A lighter cap on the side that faces the camera: the flat top-down view would otherwise
-        // read as one solid mass.
-        shapes.setColor(WALL_EDGE);
-        for (WallCell wall : data.map.walls) shapes.rect(wall.col, wall.row + 0.86f, 1f, 0.14f);
+    /** One tile per world unit, each a hair different: a large floor is never one flat colour. */
+    private void drawFloor() {
+        for (int x = 0; x < data.map.width; x++) {
+            for (int y = 0; y < data.map.height; y++) {
+                if (isWall(x, y)) continue;
+                int n = hash(x, y);
+                float v = 0.965f + (n % 5) * 0.014f;
+                shapes.setColor(FLOOR.r * v, FLOOR.g * v, FLOOR.b * v, 1f);
+                shapes.rect(x, y, 1f, 1f);
+                // A bevel, not a grid: light on the top-left edge, shadow on the bottom-right.
+                shapes.setColor(1f, 1f, 1f, 0.035f);
+                shapes.rect(x + 0.02f, y + 0.975f, 0.96f, 0.025f);
+                shapes.rect(x + 0.02f, y + 0.02f, 0.025f, 0.955f);
+                shapes.setColor(0f, 0f, 0f, 0.30f);
+                shapes.rect(x + 0.02f, y, 0.96f, 0.022f);
+                shapes.rect(x + 0.955f, y, 0.025f, 1f);
+            }
+        }
+        // A darker ring just inside the walls, the way a painted room has a border band.
+        shapes.setColor(0f, 0f, 0f, 0.20f);
+        float w = data.map.width;
+        float h = data.map.height;
+        shapes.rect(0f, 0f, w, 0.35f);
+        shapes.rect(0f, h - 0.35f, w, 0.35f);
+        shapes.rect(0f, 0f, 0.35f, h);
+        shapes.rect(w - 0.35f, 0f, 0.35f, h);
     }
+
+    /** Debris and worn patches: sparse, deterministic, always under everything else. */
+    private void drawFloorDecals() {
+        for (int x = 0; x < data.map.width; x++) {
+            for (int y = 0; y < data.map.height; y++) {
+                if (isWall(x, y)) continue;
+                int n = hash(x + 71, y + 13);
+                if (n % 9 != 0) continue;
+                float fx = x + 0.22f + (n % 5) * 0.12f;
+                float fy = y + 0.22f + ((n >> 3) % 5) * 0.12f;
+                shapes.setColor(1f, 1f, 1f, 0.028f);
+                shapes.rect(fx, fy, 0.24f, 0.15f);
+                shapes.setColor(0f, 0f, 0f, 0.28f);
+                shapes.rect(fx + 0.05f, fy + 0.05f, 0.11f, 0.04f);
+            }
+        }
+    }
+
+    /** Warm pools around live exits, cold ones around drop points: the room needs light sources. */
+    private void drawLightPools(PlayerView view) {
+        boolean open = view != null && view.exitsOpen;
+        for (MapPoint point : data.map.exits) {
+            float x = (float) point.x;
+            float y = (float) point.y;
+            for (int ring = 2; ring >= 1; ring--) {
+                shapes.setColor(EXIT_OPEN.r, EXIT_OPEN.g, EXIT_OPEN.b,
+                        (open ? 0.055f : 0.016f) * ring);
+                shapes.circle(x, y, 0.50f * ring, 32);
+            }
+        }
+        for (MapPoint point : data.map.deliveries) {
+            float x = (float) point.x;
+            float y = (float) point.y;
+            for (int ring = 2; ring >= 1; ring--) {
+                shapes.setColor(DROP.r, DROP.g, DROP.b, 0.030f * ring);
+                shapes.circle(x, y, 0.46f * ring, 32);
+            }
+        }
+    }
+
+    /**
+     * Walls as blocks with a top face, a face, and an outline on the edges that touch floor.
+     * That is what gives a flat plan its thickness.
+     */
+    private void drawWalls() {
+        for (WallCell wall : data.map.walls) {
+            float x = wall.col;
+            float y = wall.row;
+            shapes.setColor(WALL_FACE);
+            shapes.rect(x, y, 1f, 1f);
+            // The lit cap belongs to the top edge of a wall mass, not to every block, otherwise a
+            // vertical wall reads as a stack of bars.
+            if (!isWall(wall.col, wall.row + 1)) {
+                shapes.setColor(WALL_TOP);
+                shapes.rect(x, y + 0.66f, 1f, 0.34f);
+                shapes.setColor(0f, 0f, 0f, 0.22f);
+                shapes.rect(x, y + 0.60f, 1f, 0.06f);
+            }
+        }
+        // Outlines after the fills, so neighbouring blocks do not paint over each other's edge.
+        shapes.setColor(WALL_LINE);
+        for (WallCell wall : data.map.walls) {
+            float x = wall.col;
+            float y = wall.row;
+            if (!isWall(wall.col, wall.row + 1)) shapes.rect(x, y + 0.94f, 1f, 0.06f);
+            if (!isWall(wall.col, wall.row - 1)) shapes.rect(x, y, 1f, 0.06f);
+            if (!isWall(wall.col - 1, wall.row)) shapes.rect(x, y, 0.06f, 1f);
+            if (!isWall(wall.col + 1, wall.row)) shapes.rect(x + 0.94f, y, 0.06f, 1f);
+        }
+        // A lit lip where a block's face meets the floor: cheap depth, reads as a chamfer.
+        shapes.setColor(1f, 1f, 1f, 0.07f);
+        for (WallCell wall : data.map.walls) {
+            float x = wall.col;
+            float y = wall.row;
+            if (!isWall(wall.col, wall.row - 1)) shapes.rect(x, y, 1f, 0.05f);
+        }
+    }
+
+    /** Stable per-cell noise; the floor must look the same every frame. */
+    private static int hash(int x, int y) {
+        int h = x * 374761393 + y * 668265263;
+        h = (h ^ (h >> 13)) * 1274126177;
+        return Math.abs(h ^ (h >> 16));
+    }
+
+    // ---- points and actors ---------------------------------------------------------------
 
     private void drawPoints(PlayerView view) {
-        // Drop points: a teal disc with a quiet outer ring.
-        shapes.setColor(DROP);
         for (MapPoint point : data.map.deliveries) {
-            shapes.circle((float) point.x, (float) point.y, 0.30f, 24);
+            float x = (float) point.x;
+            float y = (float) point.y;
+            shapes.setColor(DROP);
+            shapes.circle(x, y, 0.32f, 28);
+            shapes.setColor(1f, 1f, 1f, 0.85f);
+            shapes.circle(x, y, 0.15f, 20);
         }
-        shapes.setColor(1f, 1f, 1f, 0.35f);
-        for (MapPoint point : data.map.deliveries) {
-            shapes.circle((float) point.x, (float) point.y, 0.20f, 24);
-        }
-        // Exits: shut ones stay muted, open ones glow.
         boolean open = view != null && view.exitsOpen;
-        shapes.setColor(open ? EXIT_OPEN : EXIT_SHUT);
         for (MapPoint point : data.map.exits) {
-            shapes.rect((float) point.x - 0.32f, (float) point.y - 0.32f, 0.64f, 0.64f);
-        }
-        if (open) {
-            shapes.setColor(1f, 0.85f, 0.45f, 0.30f);
-            for (MapPoint point : data.map.exits) {
-                shapes.circle((float) point.x, (float) point.y, 0.62f, 24);
-            }
+            float x = (float) point.x;
+            float y = (float) point.y;
+            shapes.setColor(open ? EXIT_OPEN : EXIT_SHUT);
+            shapes.rect(x - 0.34f, y - 0.34f, 0.68f, 0.68f);
+            shapes.setColor(open ? Color.WHITE : new Color(0.62f, 0.50f, 0.24f, 1f));
+            shapes.rect(x - 0.34f, y + 0.22f, 0.68f, 0.12f);
         }
     }
 
     private void drawActors(PlayerView view, ViewInterpolator interpolator) {
         if (view.thief != null) {
             for (GroundMaterial material : view.thief.groundMaterials) {
-                shapes.setColor(1f, 1f, 1f, 0.18f);
-                shapes.circle((float) material.x, (float) material.y, 0.24f, 16);
+                float x = (float) material.x;
+                float y = (float) material.y;
+                shapes.setColor(1f, 1f, 1f, 0.16f);
+                shapes.circle(x, y, 0.26f, 16);
                 shapes.setColor(MATERIAL);
-                shapes.circle((float) material.x, (float) material.y, 0.16f, 16);
+                shapes.circle(x, y, 0.17f, 16);
+                shapes.setColor(1f, 1f, 1f, 0.75f);
+                shapes.circle(x, y, 0.07f, 12);
             }
         }
         if (interpolator.opponentVisible()) {
@@ -165,8 +299,10 @@ final class WorldRenderer {
         float py = c;
         Color tint = role == Role.THIEF ? SELF_THIEF : SELF_POLICE;
 
-        shapes.setColor(tint.r, tint.g, tint.b, halo);
-        shapes.circle(x, y, 0.46f, 28);
+        shapes.setColor(tint.r, tint.g, tint.b, halo * 0.35f);
+        shapes.circle(x, y, 0.54f, 28);
+        shapes.setColor(tint.r, tint.g, tint.b, halo * 0.75f);
+        shapes.circle(x, y, 0.42f, 28);
 
         if (role == Role.POLICE) {
             // Brim: a wedge in front of the cap, the menu icon's most recognisable shape.
@@ -203,6 +339,8 @@ final class WorldRenderer {
         }
     }
 
+    // ---- beam -----------------------------------------------------------------------------
+
     /** The police cone: three nested passes give it depth without a real gradient. */
     private void drawBeam(PlayerView view) {
         if (view.role != Role.POLICE) return;
@@ -215,9 +353,9 @@ final class WorldRenderer {
         float[] innerX = new float[BEAM_RAYS];
         float[] innerY = new float[BEAM_RAYS];
 
-        for (int pass = 0; pass < 3; pass++) {
-            double shrink = 1.0 - pass * 0.22;
-            double widthScale = 1.0 - pass * 0.18;
+        for (int pass = 0; pass < 2; pass++) {
+            double shrink = 1.0 - pass * 0.45;
+            double widthScale = 1.0;
             for (int i = 0; i < BEAM_RAYS; i++) {
                 double angle = heading - half * widthScale
                         + (2.0 * half * widthScale) * i / (BEAM_RAYS - 1);
@@ -231,7 +369,7 @@ final class WorldRenderer {
                     innerY[i] = beamY[i];
                 }
             }
-            shapes.setColor(BEAM.r, BEAM.g, BEAM.b, 0.075f);
+            shapes.setColor(BEAM.r, BEAM.g, BEAM.b, pass == 0 ? 0.085f : 0.075f);
             for (int i = 0; i < BEAM_RAYS - 1; i++) {
                 shapes.triangle((float) cx, (float) cy, beamX[i], beamY[i], beamX[i + 1], beamY[i + 1]);
             }
@@ -262,6 +400,8 @@ final class WorldRenderer {
         return lo;
     }
 
+    // ---- minimap --------------------------------------------------------------------------
+
     /** Minimap. Ground materials appear only when the thief view carries them (contract §7). */
     void renderMinimap(PlayerView view, ViewInterpolator interpolator) {
         uiViewport.apply();
@@ -271,16 +411,21 @@ final class WorldRenderer {
         float w = data.map.width * MM_SCALE;
         float h = data.map.height * MM_SCALE;
 
-        shapes.setColor(1f, 1f, 1f, 0.90f);                       // outer border
+        shapes.setColor(1f, 1f, 1f, 0.90f);
         shapes.rect(MM_X - 4f, MM_Y - 4f, w + 8f, h + 8f);
-        shapes.setColor(FLOOR);
+        shapes.setColor(FLOOR_EDGE);
         shapes.rect(MM_X - 2f, MM_Y - 2f, w + 4f, h + 4f);
-        shapes.setColor(0.055f, 0.078f, 0.110f, 1f);
+        shapes.setColor(0.070f, 0.092f, 0.118f, 1f);
         shapes.rect(MM_X, MM_Y, w, h);
 
-        shapes.setColor(WALL_EDGE);
+        shapes.setColor(WALL_FACE);
         for (WallCell wall : data.map.walls) {
             shapes.rect(MM_X + wall.col * MM_SCALE, MM_Y + wall.row * MM_SCALE, MM_SCALE, MM_SCALE);
+        }
+        shapes.setColor(WALL_TOP);
+        for (WallCell wall : data.map.walls) {
+            shapes.rect(MM_X + wall.col * MM_SCALE, MM_Y + wall.row * MM_SCALE + MM_SCALE * 0.6f,
+                    MM_SCALE, MM_SCALE * 0.4f);
         }
         shapes.setColor(DROP);
         for (MapPoint point : data.map.deliveries) {
