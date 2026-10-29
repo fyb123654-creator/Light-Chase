@@ -143,6 +143,9 @@ public final class LightChaseApp extends ApplicationAdapter {
     /** Second half of a press: the slab is falling back from white to navy. */
     private final boolean[] returning = new boolean[2];
     private boolean readyReturning;
+    /** The label the READY button was showing when it was pressed; it keeps it until the
+     *  wash reaches its peak, so the text never changes mid-animation. */
+    private String readyLabelAtPress = "READY";
     private int pulseId = -1;
     private float pulseT;
     private long editedAtMs;
@@ -277,6 +280,17 @@ public final class LightChaseApp extends ApplicationAdapter {
         // would be rejected locally as ALREADY_CONNECTED and the app would sit on a dead page.
         connectionState = ConnectionStates.DISCONNECTED;
         connectionDetail = "";
+        // Coming back from the background always starts on a fresh menu: no half-chosen role, no
+        // half-played READY button, exactly the state of a first launch.
+        selectedRole = null;
+        suppressRoomRole = true;
+        readyReveal = 0f;
+        readyPress = 0f;
+        readyQueued = false;
+        readyReturning = false;
+        shownPage = null;
+        fadePhase = 0;
+        fadeT = 0f;
         connect();
     }
 
@@ -590,6 +604,7 @@ public final class LightChaseApp extends ApplicationAdapter {
                 // button reacts before the network does.
                 if (selectedRole == null || readyReveal < 0.5f) return true;
                 if (!pending("SET_READY") && !readyQueued) {
+                    readyLabelAtPress = isSelfReady() ? "CANCEL READY" : "READY";
                     readyQueued = true;
                     readyPress = 0f;
                 }
@@ -952,14 +967,20 @@ public final class LightChaseApp extends ApplicationAdapter {
             scratchColor.a = reveal;
             uiRound.fill(batch, scratchColor, bx, btop, bw, bh);
 
-            String cta = busy ? "WAITING..." : (isSelfReady() ? "CANCEL READY" : "READY");
-            float cw = UiDraw.width(fonts.cta, cta, 1.5f);
-            float ctop2 = btop + (bh - UiDraw.capHeight(fonts.cta)) / 2f;
+            boolean pressing = readyQueued || readyReturning;
+            String cta;
+            if (busy) {
+                cta = "WAITING...";
+            } else if (pressing) {
+                cta = readyLabelAtPress;                 // no text change under the finger
+            } else {
+                cta = isSelfReady() ? "CANCEL READY" : "READY";
+            }
             // The label stays white: as the slab whitens the two converge and the button washes
             // out into the incoming white screen rather than switching colour.
             scratchColor.set(busy ? LOBBY_GREY : Color.WHITE);
             scratchColor.a = reveal;
-            UiDraw.text(batch, fonts.cta, cta, bx + (bw - cw) / 2f, ctop2, scratchColor, 1.5f);
+            fitText(fonts.cta, cta, bx, btop, bw, bh, scratchColor);
         }
         float ctop = CTA_TOP + bs + (CTA_H - UiDraw.capHeight(fonts.cta)) / 2f;
 
@@ -1104,6 +1125,24 @@ public final class LightChaseApp extends ApplicationAdapter {
         float top2 = top + (h - UiDraw.capHeight(fonts.cta)) / 2f;
         UiDraw.text(batch, fonts.cta, label, x + (w - cw) / 2f, top2,
                 enabled ? Color.WHITE : LOBBY_GREY, 1.5f);
+    }
+
+    /**
+     * Draws a label centred in a box, shrinking it when it would not fit. Labels are the one place
+     * where a longer word must not spill outside its slab, and the boxes are fixed sizes.
+     */
+    private void fitText(BitmapFont font, String label, float x, float top, float w, float h,
+                         Color color) {
+        float avail = w - 28f;
+        float full = UiDraw.width(font, label, 1.5f);
+        float k = full > avail ? Math.max(0.60f, avail / full) : 1f;
+        BitmapFont.BitmapFontData d = font.getData();
+        float base = d.scaleX;
+        if (k < 1f) d.setScale(base * k);
+        float cap = UiDraw.capHeight(font) * k;
+        float ty = top + (h - cap) / 2f;
+        UiDraw.text(batch, font, label, x + (w - full * k) / 2f, ty, color, 1.5f);
+        if (k < 1f) d.setScale(base);
     }
 
     /** Text-only action with a marker underneath. */
