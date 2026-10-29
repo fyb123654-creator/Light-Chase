@@ -610,7 +610,7 @@ public final class LightChaseApp extends ApplicationAdapter {
                 // button reacts before the network does.
                 if (selectedRole == null || readyReveal < 0.5f) return true;
                 if (!pending("SET_READY") && !readyQueued) {
-                    readyLabelAtPress = isSelfReady() ? "CANCEL READY" : "READY";
+                    readyLabelAtPress = isSelfReady() ? "CANCEL" : "READY";
                     readyQueued = true;
                     readyPress = 0f;
                 }
@@ -980,7 +980,7 @@ public final class LightChaseApp extends ApplicationAdapter {
             } else if (pressing) {
                 cta = readyLabelAtPress;                 // no text change under the finger
             } else {
-                cta = isSelfReady() ? "CANCEL READY" : "READY";
+                cta = isSelfReady() ? "CANCEL" : "READY";
             }
             // The label stays white: as the slab whitens the two converge and the button washes
             // out into the incoming white screen rather than switching colour.
