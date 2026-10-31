@@ -74,11 +74,14 @@ public final class LightChaseApp extends ApplicationAdapter {
     private static final float CONNECT_ACTION_TOP = 346f;
 
     // The inline editor's box, shared by drawing and hit testing so they cannot drift.
-    private static final float EDITOR_W = 760f;
-    private static final float EDITOR_H = 320f;
-    private static final float EDITOR_TOP = 190f;
-    private static final float EDITOR_BTN_W = 168f;
-    private static final float EDITOR_BTN_H = 60f;
+    // The on-screen keyboard eats the bottom half of a landscape phone, so the whole modal has
+    // to live in the top band: title, field and buttons stacked in ~165 units.
+    private static final float EDITOR_W = 780f;
+    private static final float EDITOR_H = 164f;
+    private static final float EDITOR_TOP = 8f;
+    private static final float EDITOR_BTN_W = 150f;
+    private static final float EDITOR_BTN_H = 44f;
+    private static final float EDITOR_BTN_TOP = 108f;
     private static final float MATCH_RULE = 96f;
     private static final float RESULT_ACTION_TOP = 552f;
     private static final float BOX_RADIUS = 0.0f;
@@ -570,15 +573,12 @@ public final class LightChaseApp extends ApplicationAdapter {
 
     private boolean tapEditor(Vector2 p) {
         float px = (ui.getWorldWidth() - EDITOR_W) / 2f;
-        float fx = px + 34f;
-        float fw = EDITOR_W - 68f;
-        float by = EDITOR_TOP + EDITOR_H - 34f - EDITOR_BTN_H;
-        if (inside(p, fx, UiTheme.H - (by + EDITOR_BTN_H), EDITOR_BTN_W, EDITOR_BTN_H)) {
-            startWash(8);
-            return true;
-        }
-        if (inside(p, fx + fw - EDITOR_BTN_W, UiTheme.H - (by + EDITOR_BTN_H),
-                EDITOR_BTN_W, EDITOR_BTN_H)) {
+        float fx = px + 22f;
+        float fw = EDITOR_W - 44f;
+        float by = EDITOR_TOP + EDITOR_BTN_TOP;
+        float y = UiTheme.H - (by + EDITOR_BTN_H);
+        if (inside(p, fx, y, EDITOR_BTN_W, EDITOR_BTN_H)) { startWash(8); return true; }
+        if (inside(p, fx + fw - EDITOR_BTN_W, y, EDITOR_BTN_W, EDITOR_BTN_H)) {
             startWash(7);
             return true;
         }
@@ -603,11 +603,11 @@ public final class LightChaseApp extends ApplicationAdapter {
             float actY = UiTheme.yFromTop(CONNECT_ACTION_TOP, CTA_H);
             if (inside(p, UiTheme.MARGIN, actY, CTA_W, CTA_H)) { startWash(0); return true; }
             if (mode != Mode.LAN
-                    && inside(p, scenarioX(ui.getWorldWidth()), actY, FRAME_W, CTA_H)) {
+                    && inside(p, scenarioX(ui.getWorldWidth()), actY, SCENARIO_W, CTA_H)) {
                 startWash(2);
                 return true;
             }
-            if (inside(p, modeX(ui.getWorldWidth()), actY, FRAME_W, CTA_H)) {
+            if (inside(p, modeX(ui.getWorldWidth()), actY, MODE_W, CTA_H)) {
                 startWash(3);
                 // Switching transport drops the current one: leaving a live LAN socket behind while
                 // the UI shows OFFLINE would let two transports deliver callbacks.
@@ -762,12 +762,6 @@ public final class LightChaseApp extends ApplicationAdapter {
         Page target = page();
         if (shownPage == null) {
             shownPage = target;                       // first frame: there is nothing to hide
-        } else if (target == Page.CONNECT && shownPage != Page.CONNECT) {
-            // The session is gone, so the model behind the old page is gone too: switch at once
-            // instead of animating a page whose room no longer exists.
-            shownPage = Page.CONNECT;
-            fadePhase = 0;
-            fadeT = 0f;
         } else if (target != shownPage && fadePhase == 0 && !washing()) {
             // The room moved on. Turn the screen white *while the old page is still the one on
             // screen*; the new page is only adopted once the cover is opaque. Waiting for a press
@@ -965,11 +959,11 @@ public final class LightChaseApp extends ApplicationAdapter {
         primaryButton(m, CONNECT_ACTION_TOP, CTA_W, CTA_H, "CONNECT", lanGatewayFactory != null,
                 washOf(0));
         if (mode != Mode.LAN) {
-            framedAction(scenarioX(w), CONNECT_ACTION_TOP, FRAME_W, CTA_H, scenarioLabel(),
-                    scenarioActive(), washOf(2));
+            framedAction(scenarioX(w), CONNECT_ACTION_TOP, SCENARIO_W, CTA_H, scenarioLabel(),
+                    true, washOf(2));
         }
-        framedAction(modeX(w), CONNECT_ACTION_TOP, FRAME_W, CTA_H, modeLabel(),
-                mode == Mode.LAN, washOf(3));
+        framedAction(modeX(w), CONNECT_ACTION_TOP, MODE_W, CTA_H, modeLabel(),
+                true, washOf(3));
 
         kv(m, CONNECT_RULE2 + bs + 44f, "STATUS", connectionState, UiTheme.TEXT);
         if (!connectionDetail.isEmpty()) {
@@ -1175,12 +1169,6 @@ public final class LightChaseApp extends ApplicationAdapter {
         scratchColor.set(Color.WHITE);
         scratchColor.lerp(new Color(0.94f, 0.80f, 0.78f, 1f), lit);
         uiRound.fill(batch, scratchColor, x, top, w, h);
-        if (justTapped) {
-            // A short accent bar along the bottom edge: the tap is acknowledged even though the
-            // actual editing happens in a system dialog.
-            float unit = UiDraw.width(fonts.mono, "M", 0.4f);
-            uiRound.fill(batch, UiTheme.ACCENT, x + w / 2f - unit * 2f, top + h - 5f, unit * 4f, 4f);
-        }
         float cx = x + w / 2f;
         float hLabel = UiDraw.capHeight(fonts.mono);
         float hValue = UiDraw.capHeight(fonts.displaySmall);
@@ -1253,33 +1241,30 @@ public final class LightChaseApp extends ApplicationAdapter {
         scratchColor.set(0f, 0f, 0f, 0.55f);
         uiRound.rect(batch, scratchColor, 0f, 0f, w, UiTheme.H);
 
-        scratchColor.set(0.855f, 0.867f, 0.886f, 1f);       // 灰白面板
+        scratchColor.set(0.855f, 0.867f, 0.886f, 1f);
         uiRound.fill(batch, scratchColor, px, py, pw, ph);
 
-        UiDraw.text(batch, fonts.mono, editorTitle(), px + 34f, py + 30f,
-                new Color(0.20f, 0.20f, 0.20f, 1f), 2f);
+        UiDraw.text(batch, fonts.mono, editorTitle(), px + 22f, py + 12f,
+                new Color(0.30f, 0.30f, 0.32f, 1f), 2f);
 
-        float fx = px + 34f;
-        float fy = py + 76f;
-        float fw = pw - 68f;
-        float fh = 92f;
+        float fx = px + 22f;
+        float fy = py + 30f;
+        float fw = pw - 44f;
+        float fh = 66f;
         uiRound.fill(batch, Color.WHITE, fx, fy, fw, fh);
 
         String text = editText.toString();
-        while (UiDraw.width(fonts.monoBig, text, 1f) > fw - 40f && text.length() > 1) {
+        while (UiDraw.width(fonts.monoBig, text, 1f) > fw - 36f && text.length() > 1) {
             text = text.substring(1);
         }
         boolean caretOn = ((System.nanoTime() / 500_000_000L) & 1L) == 0L;
-        UiDraw.text(batch, fonts.monoBig, text + (caretOn ? "|" : ""), fx + 20f,
+        UiDraw.text(batch, fonts.monoBig, text + (caretOn ? "|" : ""), fx + 18f,
                 fy + (fh - UiDraw.capHeight(fonts.monoBig)) / 2f,
                 new Color(0.13f, 0.13f, 0.15f, 1f), 1f);
 
-        float bw = EDITOR_BTN_W;
-        float bh = EDITOR_BTN_H;
-        float by = py + ph - 34f - bh;
-        framedButton(fx, by, bw, bh, "CANCEL", washOf(8));
-        framedButton(fx + fw - bw, by, bw, bh, "OK", washOf(7));
-
+        float by = py + EDITOR_BTN_TOP;
+        framedButton(fx, by, EDITOR_BTN_W, EDITOR_BTN_H, "CANCEL", washOf(8));
+        framedButton(fx + fw - EDITOR_BTN_W, by, EDITOR_BTN_W, EDITOR_BTN_H, "OK", washOf(7));
     }
 
     /** Navy rounded button that washes white while it is pressed. */
@@ -1287,10 +1272,10 @@ public final class LightChaseApp extends ApplicationAdapter {
         scratchColor.set(READY_BLUE);
         scratchColor.lerp(Color.WHITE, lit);
         uiRound.fill(batch, scratchColor, x, top, w, h);
-        float cw = UiDraw.width(fonts.monoBig, label, 1.5f);
+        float cw = UiDraw.width(fonts.mono, label, 2f);
         scratchColor.set(Color.WHITE);
-        UiDraw.text(batch, fonts.monoBig, label, x + (w - cw) / 2f,
-                top + (h - UiDraw.capHeight(fonts.monoBig)) / 2f, scratchColor, 1.5f);
+        UiDraw.text(batch, fonts.mono, label, x + (w - cw) / 2f,
+                top + (h - UiDraw.capHeight(fonts.mono)) / 2f, scratchColor, 2f);
     }
 
     /**
@@ -1299,13 +1284,11 @@ public final class LightChaseApp extends ApplicationAdapter {
      */
     private void framedAction(float x, float top, float w, float h, String label, boolean live,
                               float lit) {
+        // Solid accent slab with a white label; pressing washes it like every other control.
         scratchColor.set(UiTheme.ACCENT);
         scratchColor.lerp(Color.WHITE, lit);
         uiRound.fill(batch, scratchColor, x, top, w, h);
-        scratchColor.set(UiTheme.BG);
-        uiRound.fill(batch, scratchColor, x + 3f, top + 3f, w - 6f, h - 6f);
-        scratchColor.set(live ? UiTheme.ACCENT : LOBBY_GREY);
-        scratchColor.lerp(Color.WHITE, lit);
+        scratchColor.set(live ? Color.WHITE : new Color(1f, 1f, 1f, 0.72f));
         fitText(fonts.mono, label, x, top, w, h, scratchColor);
     }
 
@@ -1321,15 +1304,17 @@ public final class LightChaseApp extends ApplicationAdapter {
         return (w - 2 * UiTheme.MARGIN - 2 * GRID_GAP) / 3f;
     }
 
-    private static final float FRAME_W = 248f;
+    private static final float MODE_W = 210f;
+    /** Wide enough for the longest scenario name, so switching never changes the box. */
+    private static final float SCENARIO_W = 320f;
 
     /** MODE sits against the right margin; SCENARIO is parked immediately to its left. */
     private float modeX(float w) {
-        return w - UiTheme.MARGIN - FRAME_W;
+        return w - UiTheme.MARGIN - MODE_W;
     }
 
     private float scenarioX(float w) {
-        return modeX(w) - FRAME_W - 24f;
+        return modeX(w) - SCENARIO_W - 24f;
     }
 
     /** Horizontal centre of the OPPONENT chip; LEAVE ROOM is parked under it. */
