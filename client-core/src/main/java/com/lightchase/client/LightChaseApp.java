@@ -70,7 +70,15 @@ public final class LightChaseApp extends ApplicationAdapter {
     private static final float CONNECT_RULE1 = 176f;
     private static final float CONNECT_RULE2 = 470f;
     private static final float CONNECT_CHIP_TOP = 210f;
-    private static final float CONNECT_ACTION_TOP = 336f;
+    /** Centred in the band between the chip row and the second rule. */
+    private static final float CONNECT_ACTION_TOP = 346f;
+
+    // The inline editor's box, shared by drawing and hit testing so they cannot drift.
+    private static final float EDITOR_W = 760f;
+    private static final float EDITOR_H = 320f;
+    private static final float EDITOR_TOP = 190f;
+    private static final float EDITOR_BTN_W = 168f;
+    private static final float EDITOR_BTN_H = 60f;
     private static final float MATCH_RULE = 96f;
     private static final float RESULT_ACTION_TOP = 552f;
     private static final float BOX_RADIUS = 0.0f;
@@ -144,10 +152,11 @@ public final class LightChaseApp extends ApplicationAdapter {
     /** 0..1: how far the READY button has faded in (it only exists once a role is picked). */
     private float readyReveal;
     /** Button wash states: 0 = CONNECT, 1 = BACK TO LOBBY. */
-    private final float[] wash = new float[2];
-    private final boolean[] washing = new boolean[2];
+    /** 0 CONNECT, 1 BACK TO LOBBY, 2 SCENARIO, 3 MODE, 4..6 fields, 7 OK, 8 CANCEL. */
+    private final float[] wash = new float[9];
+    private final boolean[] washing = new boolean[9];
     /** Second half of a press: the slab is falling back from white to navy. */
-    private final boolean[] returning = new boolean[2];
+    private final boolean[] returning = new boolean[9];
     private boolean readyReturning;
     /** The label the READY button was showing when it was pressed; it keeps it until the
      *  wash reaches its peak, so the text never changes mid-animation. */
@@ -184,7 +193,11 @@ public final class LightChaseApp extends ApplicationAdapter {
     private String port = "8080";
     private String roomId = "DEMO";
     private FakeGateway.Scenario scenario = FakeGateway.Scenario.NORMAL;
-    private boolean dialogOpen;
+    /** Which field the inline editor is editing, or -1 when it is closed. */
+    /** Field whose editor opens once its press animation has finished. */
+    private int pendingEditor = -1;
+    private int editingField = -1;
+    private final StringBuilder editText = new StringBuilder();
 
     /** Null until the player (re)picks: the lobby always starts without a role. */
     private Role selectedRole;
@@ -262,8 +275,23 @@ public final class LightChaseApp extends ApplicationAdapter {
                 return true;
             }
             @Override public boolean keyDown(int key) {
+                if (editingField >= 0) {
+                    if (key == Input.Keys.BACKSPACE && editText.length() > 0) {
+                        editText.setLength(editText.length() - 1);
+                    } else if (key == Input.Keys.ENTER) {
+                        applyEditor();
+                    } else if (key == Input.Keys.ESCAPE) {
+                        closeEditor();
+                    }
+                    return true;
+                }
                 if (key == Input.Keys.ESCAPE) { touch.clear(); gateway.returnToLobby(); return true; }
                 return false;
+            }
+            @Override public boolean keyTyped(char c) {
+                if (editingField < 0) return false;
+                if (c >= 32 && c < 127 && editText.length() < 40) editText.append(c);
+                return true;
             }
         });
     }
@@ -540,36 +568,47 @@ public final class LightChaseApp extends ApplicationAdapter {
         }
     }
 
+    private boolean tapEditor(Vector2 p) {
+        float px = (ui.getWorldWidth() - EDITOR_W) / 2f;
+        float fx = px + 34f;
+        float fw = EDITOR_W - 68f;
+        float by = EDITOR_TOP + EDITOR_H - 34f - EDITOR_BTN_H;
+        if (inside(p, fx, UiTheme.H - (by + EDITOR_BTN_H), EDITOR_BTN_W, EDITOR_BTN_H)) {
+            startWash(8);
+            return true;
+        }
+        if (inside(p, fx + fw - EDITOR_BTN_W, UiTheme.H - (by + EDITOR_BTN_H),
+                EDITOR_BTN_W, EDITOR_BTN_H)) {
+            startWash(7);
+            return true;
+        }
+        return true;                        // everything else is behind the modal
+    }
+
     private boolean tap(Vector2 p, int pointer) {
         if (fadePhase != 0) return true;   // the screen is covered
+        if (editingField >= 0) return tapEditor(p);
         Page page = shownPage == null ? page() : shownPage;
 
         if (page == Page.CONNECT) {
             float cw3 = connectColumn(ui.getWorldWidth());
             float chipY = UiTheme.yFromTop(CONNECT_CHIP_TOP, BOX_H);
-            if (inside(p, UiTheme.MARGIN, chipY, cw3, BOX_H)) {
-                editedChip = 0; editedAtMs = System.nanoTime() / 1_000_000L;
-                edit("Server host", host, "10.0.2.2", v -> host = v); return true;
-            }
+            if (inside(p, UiTheme.MARGIN, chipY, cw3, BOX_H)) { startWash(4); return true; }
             if (inside(p, UiTheme.MARGIN + cw3 + GRID_GAP, chipY, cw3, BOX_H)) {
-                editedChip = 1; editedAtMs = System.nanoTime() / 1_000_000L;
-                edit("Port", port, "8080", v -> port = v); return true;
+                startWash(5); return true;
             }
             if (inside(p, UiTheme.MARGIN + 2f * (cw3 + GRID_GAP), chipY, cw3, BOX_H)) {
-                editedChip = 2; editedAtMs = System.nanoTime() / 1_000_000L;
-                edit("Room id", roomId, "DEMO", v -> roomId = v); return true;
+                startWash(6); return true;
             }
             float actY = UiTheme.yFromTop(CONNECT_ACTION_TOP, CTA_H);
             if (inside(p, UiTheme.MARGIN, actY, CTA_W, CTA_H)) { startWash(0); return true; }
-            if (inside(p, scenarioX(ui.getWorldWidth()) - 12f, actY, 260f, CTA_H)) {
-                pulse(0);
-                FakeGateway.Scenario[] all = FakeGateway.Scenario.values();
-                scenario = all[(scenario.ordinal() + 1) % all.length];
+            if (mode != Mode.LAN
+                    && inside(p, scenarioX(ui.getWorldWidth()), actY, FRAME_W, CTA_H)) {
+                startWash(2);
                 return true;
             }
-            if (inside(p, modeX(ui.getWorldWidth()) - 12f, actY, 260f, CTA_H)) {
-                pulse(1);
-                mode = mode == Mode.OFFLINE ? Mode.LAN : Mode.OFFLINE;
+            if (inside(p, modeX(ui.getWorldWidth()), actY, FRAME_W, CTA_H)) {
+                startWash(3);
                 // Switching transport drops the current one: leaving a live LAN socket behind while
                 // the UI shows OFFLINE would let two transports deliver callbacks.
                 if (gateway != offlineGateway) {
@@ -661,13 +700,35 @@ public final class LightChaseApp extends ApplicationAdapter {
         gateway.leaveRoom();
     }
 
-    private void edit(String title, String current, String hint, java.util.function.Consumer<String> apply) {
-        if (dialogOpen) return;
-        dialogOpen = true;
-        Gdx.input.getTextInput(new Input.TextInputListener() {
-            @Override public void input(String text) { dialogOpen = false; apply.accept(text); }
-            @Override public void canceled() { dialogOpen = false; }
-        }, title, current, hint);
+    /** Opens the inline editor on one of the three connection fields. */
+    private void openEditor(int field) {
+        if (editingField >= 0) return;
+        editingField = field;
+        editText.setLength(0);
+        editText.append(field == 0 ? host : field == 1 ? port : roomId);
+        Gdx.input.setOnscreenKeyboardVisible(true);
+    }
+
+    private void applyEditor() {
+        String v = editText.toString().trim();
+        if (!v.isEmpty()) {
+            if (editingField == 0) host = v;
+            else if (editingField == 1) port = v;
+            else if (editingField == 2) roomId = v;
+            editedChip = editingField;
+            editedAtMs = System.nanoTime() / 1_000_000L;
+        }
+        closeEditor();
+    }
+
+    private void closeEditor() {
+        editingField = -1;
+        editText.setLength(0);
+        Gdx.input.setOnscreenKeyboardVisible(false);
+    }
+
+    private String editorTitle() {
+        return editingField == 0 ? "SERVER HOST" : editingField == 1 ? "PORT" : "ROOM";
     }
 
     private boolean isSelfReady() {
@@ -701,6 +762,12 @@ public final class LightChaseApp extends ApplicationAdapter {
         Page target = page();
         if (shownPage == null) {
             shownPage = target;                       // first frame: there is nothing to hide
+        } else if (target == Page.CONNECT && shownPage != Page.CONNECT) {
+            // The session is gone, so the model behind the old page is gone too: switch at once
+            // instead of animating a page whose room no longer exists.
+            shownPage = Page.CONNECT;
+            fadePhase = 0;
+            fadeT = 0f;
         } else if (target != shownPage && fadePhase == 0 && !washing()) {
             // The room moved on. Turn the screen white *while the old page is still the one on
             // screen*; the new page is only adopted once the cover is opaque. Waiting for a press
@@ -736,9 +803,6 @@ public final class LightChaseApp extends ApplicationAdapter {
                 float w = ui.getWorldWidth();
                 pageRule(shapes, w, CONNECT_RULE1);
                 pageRule(shapes, w, CONNECT_RULE2 + bottomShift());
-                secondaryRule(shapes, scenarioX(w), actionTextTop(), scenarioLabel(), scenarioActive(),
-                        pulseOf(0));
-                secondaryRule(shapes, modeX(w), actionTextTop(), modeLabel(), mode == Mode.LAN, pulseOf(1));
                 break;
             }
             case LOBBY: {
@@ -876,6 +940,7 @@ public final class LightChaseApp extends ApplicationAdapter {
             uiRound.rect(batch, scratchColor, 0f, 0f,
                     ui.getWorldWidth(), UiTheme.H);
         }
+        if (editingField >= 0) drawEditor();
         batch.end();
     }
 
@@ -885,27 +950,26 @@ public final class LightChaseApp extends ApplicationAdapter {
         float bs = bottomShift();
 
         UiDraw.text(batch, fonts.display, "LIGHT \u00b7 CHASE", m, 64f, UiTheme.TEXT, 1.5f);
-        UiDraw.text(batch, fonts.monoBig, "CONNECT", m + 2f, PAGE_KICKER, UiTheme.ACCENT, 2.5f);
-
-        String modeLabel = "MODE  " + mode.name();
-        UiDraw.text(batch, fonts.mono, modeLabel,
-                w - m - UiDraw.width(fonts.mono, modeLabel, 1f),
-                64f + (UiDraw.capHeight(fonts.display) - UiDraw.capHeight(fonts.mono)) / 2f,
-                LOBBY_GREY, 1f);
+        UiDraw.text(batch, fonts.monoBig, "CONNECTION", m + 2f, PAGE_KICKER, UiTheme.ACCENT, 2.5f);
 
         // Three equal columns: the gaps between them are the same as every other gap.
         float colW = connectColumn(w);
         long since = System.nanoTime() / 1_000_000L - editedAtMs;
-        chip(m, CONNECT_CHIP_TOP, colW, BOX_H, "SERVER HOST", host, editedChip == 0 && since < 700);
+        chip(m, CONNECT_CHIP_TOP, colW, BOX_H, "SERVER HOST", host,
+                editedChip == 0 && since < 700, washOf(4));
         chip(m + colW + GRID_GAP, CONNECT_CHIP_TOP, colW, BOX_H, "PORT", port,
-                editedChip == 1 && since < 700);
+                editedChip == 1 && since < 700, washOf(5));
         chip(m + 2f * (colW + GRID_GAP), CONNECT_CHIP_TOP, colW, BOX_H, "ROOM", roomId,
-                editedChip == 2 && since < 700);
+                editedChip == 2 && since < 700, washOf(6));
 
         primaryButton(m, CONNECT_ACTION_TOP, CTA_W, CTA_H, "CONNECT", lanGatewayFactory != null,
                 washOf(0));
-        secondaryAction(scenarioX(w), actionTextTop(), scenarioLabel(), scenarioActive(), 0);
-        secondaryAction(modeX(w), actionTextTop(), modeLabel(), mode == Mode.LAN, 1);
+        if (mode != Mode.LAN) {
+            framedAction(scenarioX(w), CONNECT_ACTION_TOP, FRAME_W, CTA_H, scenarioLabel(),
+                    scenarioActive(), washOf(2));
+        }
+        framedAction(modeX(w), CONNECT_ACTION_TOP, FRAME_W, CTA_H, modeLabel(),
+                mode == Mode.LAN, washOf(3));
 
         kv(m, CONNECT_RULE2 + bs + 44f, "STATUS", connectionState, UiTheme.TEXT);
         if (!connectionDetail.isEmpty()) {
@@ -918,11 +982,14 @@ public final class LightChaseApp extends ApplicationAdapter {
                     "ACCESS_LOCAL_NETWORK  " + (permission == null ? "N/A" : permission.describe()),
                     m, CONNECT_RULE2 + bs + 112f, ok ? LOBBY_GREY : UiTheme.ACCENT, 1f);
         }
-        UiDraw.text(batch, fonts.mono, "TAP A FIELD TO EDIT \u00b7 SCENARIO REPLAYS FIXTURE FAILURES",
-                m, 652f + bs, LOBBY_GREY, 1f);
+        if (errorText.isEmpty() && notice.isEmpty()) {
+            UiDraw.text(batch, fonts.mono, "TAP A FIELD TO EDIT \u00b7 SCENARIO REPLAYS FIXTURE FAILURES",
+                    m, 652f + bs, LOBBY_GREY, 1f);
+        }
     }
 
     private void drawLobbyText() {
+        if (room == null) return;
         float w = ui.getWorldWidth();
         float m = UiTheme.MARGIN;
         float bs = bottomShift();
@@ -1096,11 +1163,18 @@ public final class LightChaseApp extends ApplicationAdapter {
 
     /** White rounded chip with a label over a value, both centred. */
     private void chip(float x, float top, float w, float h, String label, String value) {
-        chip(x, top, w, h, label, value, false);
+        chip(x, top, w, h, label, value, false, 0f);
     }
 
-    private void chip(float x, float top, float w, float h, String label, String value, boolean justTapped) {
-        uiRound.fill(batch, Color.WHITE, x, top, w, h);
+    /**
+     * A white chip. {@code lit} warms it while it is being pressed: white cannot wash to white, so
+     * a press tints it towards the accent instead.
+     */
+    private void chip(float x, float top, float w, float h, String label, String value,
+                      boolean justTapped, float lit) {
+        scratchColor.set(Color.WHITE);
+        scratchColor.lerp(new Color(0.94f, 0.80f, 0.78f, 1f), lit);
+        uiRound.fill(batch, scratchColor, x, top, w, h);
         if (justTapped) {
             // A short accent bar along the bottom edge: the tap is acknowledged even though the
             // actual editing happens in a system dialog.
@@ -1165,6 +1239,76 @@ public final class LightChaseApp extends ApplicationAdapter {
         UiDraw.text(batch, fonts.displaySmall, value, x, top + 24f, valueColor, 0.5f);
     }
 
+    /**
+     * The inline editor. A light panel, a white field, and two navy buttons - the same shapes the
+     * rest of the app uses, instead of the platform's own dialog.
+     */
+    private void drawEditor() {
+        float w = ui.getWorldWidth();
+        float pw = EDITOR_W;
+        float ph = EDITOR_H;
+        float px = (w - pw) / 2f;
+        float py = EDITOR_TOP;
+
+        scratchColor.set(0f, 0f, 0f, 0.55f);
+        uiRound.rect(batch, scratchColor, 0f, 0f, w, UiTheme.H);
+
+        scratchColor.set(0.855f, 0.867f, 0.886f, 1f);       // 灰白面板
+        uiRound.fill(batch, scratchColor, px, py, pw, ph);
+
+        UiDraw.text(batch, fonts.mono, editorTitle(), px + 34f, py + 30f,
+                new Color(0.20f, 0.20f, 0.20f, 1f), 2f);
+
+        float fx = px + 34f;
+        float fy = py + 76f;
+        float fw = pw - 68f;
+        float fh = 92f;
+        uiRound.fill(batch, Color.WHITE, fx, fy, fw, fh);
+
+        String text = editText.toString();
+        while (UiDraw.width(fonts.monoBig, text, 1f) > fw - 40f && text.length() > 1) {
+            text = text.substring(1);
+        }
+        boolean caretOn = ((System.nanoTime() / 500_000_000L) & 1L) == 0L;
+        UiDraw.text(batch, fonts.monoBig, text + (caretOn ? "|" : ""), fx + 20f,
+                fy + (fh - UiDraw.capHeight(fonts.monoBig)) / 2f,
+                new Color(0.13f, 0.13f, 0.15f, 1f), 1f);
+
+        float bw = EDITOR_BTN_W;
+        float bh = EDITOR_BTN_H;
+        float by = py + ph - 34f - bh;
+        framedButton(fx, by, bw, bh, "CANCEL", washOf(8));
+        framedButton(fx + fw - bw, by, bw, bh, "OK", washOf(7));
+
+    }
+
+    /** Navy rounded button that washes white while it is pressed. */
+    private void framedButton(float x, float top, float w, float h, String label, float lit) {
+        scratchColor.set(READY_BLUE);
+        scratchColor.lerp(Color.WHITE, lit);
+        uiRound.fill(batch, scratchColor, x, top, w, h);
+        float cw = UiDraw.width(fonts.monoBig, label, 1.5f);
+        scratchColor.set(Color.WHITE);
+        UiDraw.text(batch, fonts.monoBig, label, x + (w - cw) / 2f,
+                top + (h - UiDraw.capHeight(fonts.monoBig)) / 2f, scratchColor, 1.5f);
+    }
+
+    /**
+     * A control drawn as an accent frame around the background: rounded outside, rounded inside,
+     * so it reads as a nested border rather than a filled button.
+     */
+    private void framedAction(float x, float top, float w, float h, String label, boolean live,
+                              float lit) {
+        scratchColor.set(UiTheme.ACCENT);
+        scratchColor.lerp(Color.WHITE, lit);
+        uiRound.fill(batch, scratchColor, x, top, w, h);
+        scratchColor.set(UiTheme.BG);
+        uiRound.fill(batch, scratchColor, x + 3f, top + 3f, w - 6f, h - 6f);
+        scratchColor.set(live ? UiTheme.ACCENT : LOBBY_GREY);
+        scratchColor.lerp(Color.WHITE, lit);
+        fitText(fonts.mono, label, x, top, w, h, scratchColor);
+    }
+
     private String scenarioLabel() { return "SCENARIO  " + scenario; }
 
     private String modeLabel() { return "MODE  " + mode.name(); }
@@ -1177,12 +1321,15 @@ public final class LightChaseApp extends ApplicationAdapter {
         return (w - 2 * UiTheme.MARGIN - 2 * GRID_GAP) / 3f;
     }
 
-    private float scenarioX(float w) {
-        return UiTheme.MARGIN + CTA_W + 72f;
+    private static final float FRAME_W = 248f;
+
+    /** MODE sits against the right margin; SCENARIO is parked immediately to its left. */
+    private float modeX(float w) {
+        return w - UiTheme.MARGIN - FRAME_W;
     }
 
-    private float modeX(float w) {
-        return scenarioX(w) + 300f;
+    private float scenarioX(float w) {
+        return modeX(w) - FRAME_W - 24f;
     }
 
     /** Horizontal centre of the OPPONENT chip; LEAVE ROOM is parked under it. */
@@ -1636,11 +1783,18 @@ public final class LightChaseApp extends ApplicationAdapter {
                     // and cover the screen while it runs.
                     washing[i] = false;
                     returning[i] = true;
-                    if (i == 0) {
-                        connect();
-                    } else {
-                        touch.clear();
-                        gateway.returnToLobby();
+                    switch (i) {
+                        case 0: connect(); break;
+                        case 1: touch.clear(); gateway.returnToLobby(); break;
+                        case 2: {
+                            FakeGateway.Scenario[] all = FakeGateway.Scenario.values();
+                            scenario = all[(scenario.ordinal() + 1) % all.length];
+                            break;
+                        }
+                        case 3: mode = mode == Mode.OFFLINE ? Mode.LAN : Mode.OFFLINE; break;
+                        case 7: applyEditor(); break;
+                        case 8: closeEditor(); break;
+                        default: pendingEditor = i - 4; break;
                     }
                 }
             } else if (returning[i]) {
@@ -1648,6 +1802,12 @@ public final class LightChaseApp extends ApplicationAdapter {
                 if (wash[i] <= 0f) {
                     wash[i] = 0f;
                     returning[i] = false;
+                    // The editor opens only after the whole press has played out, so the player
+                    // sees their tap acknowledged before a panel covers the page.
+                    if (pendingEditor == i - 4) {
+                        pendingEditor = -1;
+                        openEditor(i - 4);
+                    }
                 }
             }
         }
