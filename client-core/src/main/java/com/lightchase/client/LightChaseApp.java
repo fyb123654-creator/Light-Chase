@@ -48,7 +48,6 @@ public final class LightChaseApp extends ApplicationAdapter {
     private static final float CTA_W = 228f;
     private static final float CTA_H = 64f;
     private static final float ICON_DX = 232f;
-    private static final float ICON_R = 30f;
     private static final float BOX_H = 76f;
 
     /** The scene curtain: mist grey instead of pure white, and never fully opaque. */
@@ -101,7 +100,17 @@ public final class LightChaseApp extends ApplicationAdapter {
     private static final Color ROLE_POLICE = new Color(0.20f, 0.42f, 0.62f, 1f);
     private static final Color ROLE_THIEF = new Color(0.68f, 0.23f, 0.23f, 1f);
 
-    private static final float QUIT_X = 520f, QUIT_Y = 30f, QUIT_W = 240f, QUIT_H = 56f;
+    private static final float QUIT_W = 240f, QUIT_H = 56f;
+    private static final float QUIT_TOP = 40f;
+
+    /** QUIT sits in the top-right corner, flush with the right margin. */
+    private float quitX(float w) {
+        return w - UiTheme.MARGIN - QUIT_W;
+    }
+
+    private float quitY() {
+        return UiTheme.H - QUIT_TOP - QUIT_H;
+    }
 
     private ClientGateway gateway;
     private final ClientGateway offlineGateway;
@@ -121,6 +130,9 @@ public final class LightChaseApp extends ApplicationAdapter {
     private SpriteBatch batch;
     private UiFonts fonts;
     private final UiRound uiRound = new UiRound();
+    /** Shared text primitives; also what the extracted pages draw with. */
+    private Widgets widgets;
+    private PageContext pageContext;
     private BitmapFont font;
     /** Which control was touched last, and when, so the press is visible for a moment. */
     private String pressTarget = null;
@@ -128,15 +140,11 @@ public final class LightChaseApp extends ApplicationAdapter {
 
     // ---- lobby animation ----------------------------------------------------------------
     /** Idle clock for the wandering flashlight and the gem. */
-    private float lobbyClock;
     private float hoverPolice, hoverThief, hoverReady, hoverLeave;
-    private float selectPolice, selectThief;
     /** 0 = flashlight off, 1 = fully on. Turns off, aims, then comes back up. */
-    private float beamOn;
     /** Idle sweep intensity, faded separately so leaving the role does not snap the light on. */
     private float idleOn;
     /** 0 = wandering, 1 = aimed at the text: driven by the switch sequence, not by the click. */
-    private float turn;
     /** Seconds since POLICE was chosen; negative when it is not the current role. */
     private float toPoliceT = -1f;
     /** Seconds since POLICE was left; negative when it is the current role. */
@@ -144,39 +152,33 @@ public final class LightChaseApp extends ApplicationAdapter {
     /** How far the idle beam has grown out of the lens, 0..1. */
     private float idleReach;
     /** LEAVE ROOM's rule animation: rises, holds, then falls back. */
-    private float leaveHot;
-    private float leaveT = -1f;
-    private boolean leaveQueued;
     /** Which connection field was just tapped, and when: the chip flashes so the tap lands. */
     private int editedChip = -1;
     /** Which secondary action is mid-pulse, and how far along. */
     /** Set when the lobby must show "nothing chosen" until the player taps a role. */
-    private boolean suppressRoomRole = true;
     /** 0..1: how far the READY button has faded in (it only exists once a role is picked). */
-    private float readyReveal;
     /** Button wash states: 0 = CONNECT, 1 = BACK TO LOBBY. */
-    /** 0 CONNECT, 1 BACK TO LOBBY, 2 SCENARIO, 3 MODE, 4..6 fields, 7 OK, 8 CANCEL. */
-    private final float[] wash = new float[9];
-    private final boolean[] washing = new boolean[9];
+    /** 0 CONNECT, 1 BACK TO LOBBY, 2 SCENARIO, 3 MODE, 4..6 fields, 7 OK, 8 CANCEL, 9 QUIT. */
+    private final float[] wash = new float[10];
+    private final boolean[] washing = new boolean[10];
     /** Second half of a press: the slab is falling back from white to navy. */
-    private final boolean[] returning = new boolean[9];
-    private boolean readyReturning;
+    private final boolean[] returning = new boolean[10];
     /** The label the READY button was showing when it was pressed; it keeps it until the
      *  wash reaches its peak, so the text never changes mid-animation. */
-    private String readyLabelAtPress = "READY";
+    /** The label that replaces it once the slab is white - hidden by the wash. */
     private int pulseId = -1;
     private float pulseT;
     private long editedAtMs;
     /** READY plays its press animation first and only then sends the request. */
-    private boolean readyQueued;
-    private float readyPress;   // 0..1 over the animation
 
     /** Screen transitions: fade to white, run the action, fade back from white. */
     private int fadePhase;      // 0 idle, 1 out, 2 hold, 3 in
+    /** Per-transition curtain timings: the countdown page is short, so it gets a fast cut. */
+    private float phaseIn = 0.26f;
+    private float phaseHold = 0.26f;
+    private float phaseOut = 1.14f;
     private float fadeT;
     /** Per-chip cross-fade: previous value, current value, and the blend between them. */
-    private final String[] chipShown = new String[4];
-    private final String[] chipPrev = new String[4];
     private final float[] chipFade = {1f, 1f, 1f, 1f};
     /** Pointer in UI space, refreshed by mouseMoved / touchDown. */
     private float pointerX = -1f, pointerY = -1f;
@@ -190,6 +192,24 @@ public final class LightChaseApp extends ApplicationAdapter {
     private String connectionState = ConnectionStates.DISCONNECTED;
     private String connectionDetail = "";
     private String notice = "";
+
+    // What is actually on screen for the two message lines. A change fades the old text out
+    // first and only then fades the new one in, so a message never pops.
+    private String noteShown = "";
+
+    /** A rejected role pick, shown beside the role it belongs to instead of the footer. */
+    /** SCENARIO only exists in OFFLINE mode; it fades with the mode instead of popping. */
+    private float scenarioFade = 1f;
+    private long actionDownMs;
+    /** Alpha of the green fill: it fades out as a whole instead of rewinding. */
+    private float fillAlpha = 1f;
+    /** 0..1 icon strength: the glyph fades with the button, never pops in. */
+    /** 0..1 weight of the carrying offset on the gem's height: eased, never switched. */
+    /** Seconds into the success tick, or negative when it is not playing. */
+
+    /** The countdown kicker fades in with the page instead of appearing at full strength. */
+    private float countdownReveal;
+    private Role rolePickPending;
     private String errorText = "";
 
     private String host = "10.0.2.2";
@@ -197,13 +217,19 @@ public final class LightChaseApp extends ApplicationAdapter {
     private String roomId = "DEMO";
     private FakeGateway.Scenario scenario = FakeGateway.Scenario.NORMAL;
     /** Which field the inline editor is editing, or -1 when it is closed. */
+    /**
+     * Set by the Android backend. libGDX keeps a hidden EditText focused after the keyboard is
+     * dismissed, and that focus makes Android raise the keyboard again on the next tap anywhere.
+     * The backend clears that focus for us here.
+     */
+    public static Runnable hideKeyboardHook;
+
     /** Field whose editor opens once its press animation has finished. */
     private int pendingEditor = -1;
     private int editingField = -1;
     private final StringBuilder editText = new StringBuilder();
 
     /** Null until the player (re)picks: the lobby always starts without a role. */
-    private Role selectedRole;
     /** What is actually on screen. It lags behind {@link #page()} until the cover is white,
      *  so a scene can never appear before the transition that hides it. */
     private Page shownPage;
@@ -213,6 +239,129 @@ public final class LightChaseApp extends ApplicationAdapter {
     private final java.util.Set<String> pendingControls = new java.util.HashSet<>();
     private WorldRenderer worldRenderer;
     private final MatchQuit quit = new MatchQuit();
+    /** Everything about the in-match action button lives in its own class. */
+    private final ActionButton actionButton = new ActionButton();
+    /** The two lobby characters. */
+    private final LobbyArt lobbyArt = new LobbyArt();
+    private final ConnectView.Frame connectFrame = new ConnectView.Frame();
+    private final ResultView.Frame resultFrame = new ResultView.Frame();
+    private final LobbyView lobbyView = new LobbyView();
+    /** Everything the lobby remembers lives here. */
+    private final LobbyState lobby = new LobbyState();
+    /** 0..1 the inline editor's own fade, so it never pops in or out. */
+    private float editorFade;
+    private final LobbyView.Frame lobbyFrame = new LobbyView.Frame();
+
+    /** Fills the lobby page's frame from the app's state. */
+    private LobbyView.Frame lobbyFrame(float w) {
+        LobbyView.Frame f = lobbyFrame;
+        if (room == null) {
+            f.roomId = "";
+            f.mapId = "";
+        } else {
+            f.roomId = room.roomId;
+            f.mapId = room.mapId;
+        }
+        RoomPlayer other = opponentPlayer();
+        f.youLabel = lobby.selectedRole == null ? "-" : lobby.selectedRole.name();
+        f.opponentLabel = lobby.selectedRole == null || other == null || other.role == null
+                ? "-" : other.role.name();
+        f.selectPolice = lobby.selectPolice;
+        f.selectThief = lobby.selectThief;
+        f.beamOn = lobby.beamOn;
+        f.roleNoticeT = lobby.roleNoticeT;
+        f.roleNoticeRole = lobby.roleNoticeRole;
+        f.roleNoticeText = lobby.roleNoticeText;
+        f.busy = pending("SET_READY");
+        f.reveal = UiAnim.smooth(lobby.readyReveal);
+        f.pressLit = UiAnim.smooth(lobby.readyPress);
+        f.cta = currentCta();
+        f.ctaMuted = "WAITING...".equals(f.cta);
+        f.leaveHot = lobby.leaveHot;
+        f.lobbyStatus = lobbyStatusFade;
+        f.modeLabel = "MODE  " + mode.name();
+        f.bottomShift = bottomShift();
+        f.margin = UiTheme.MARGIN;
+        f.worldWidth = w;
+        f.kickerTop = PAGE_KICKER;
+        f.roleCx = ROLE_CX;
+        f.role1Top = ROLE1_TOP;
+        f.role2Top = ROLE2_TOP;
+        f.iconDx = ICON_DX;
+        f.iconR = LobbyArt.ICON_R;
+        f.ctaTop = CTA_TOP;
+        f.ctaW = CTA_W;
+        f.ctaH = CTA_H;
+        f.boxH = BOX_H;
+        f.gridGap = GRID_GAP;
+        f.leaveCentreX = leaveCentre(w);
+        f.footerTop = 652f;
+        return f;
+    }
+
+    /** The one word the primary action shows, decided once so the view cannot disagree. */
+    private String currentCta() {
+        if (lobby.readyQueued) return lobby.readyLabelAtPress;
+        if (lobby.readyReturning) return lobby.readyLabelAfter;
+        if (pending("SET_READY")) return "WAITING...";
+        return isSelfReady() ? "CANCEL" : "READY";
+    }
+
+    /** Fills the connect page's frame from the app's own state; the view keeps nothing. */
+    private ConnectView.Frame connectFrame() {
+        float w = ui.getWorldWidth();
+        ConnectView.Frame f = connectFrame;
+        f.host = host;
+        f.port = port;
+        f.room = roomId;
+        f.editedChip = editedChip;
+        f.editedAtMs = editedAtMs;
+        f.scenarioFade = scenarioFade;
+        f.scenarioLabel = scenarioLabel();
+        f.modeLabel = modeLabel();
+        f.lanAvailable = lanGatewayFactory != null;
+        f.permission = permission;
+        f.status = statusFade;
+        f.detail = detailFade;
+        f.permissionLine = permFade;
+        f.wash = this::washOf;
+        f.margin = UiTheme.MARGIN;
+        f.chipTop = CONNECT_CHIP_TOP;
+        f.chipW = connectColumn(w);
+        f.chipH = BOX_H;
+        f.gap = GRID_GAP;
+        f.actionTop = CONNECT_ACTION_TOP;
+        f.ctaW = CTA_W;
+        f.ctaH = CTA_H;
+        f.scenarioW = SCENARIO_W;
+        f.scenarioX = scenarioX(w);
+        f.modeW = MODE_W;
+        f.modeX = modeX(w);
+        f.rule2Top = CONNECT_RULE2;
+        f.bottomShift = bottomShift();
+        f.kickerTop = PAGE_KICKER;
+        return f;
+    }
+
+    /** Fills the result page's frame the same way. */
+    private ResultView.Frame resultFrame() {
+        ResultView.Frame f = resultFrame;
+        f.result = result;
+        f.selfRole = lobby.selectedRole;
+        f.data = data;
+        f.ticksPerSecond = (float) ticksPerSecond();
+        f.bottomShift = bottomShift();
+        f.canLeave = !pending("RETURN_LOBBY");
+        f.leaveWash = washOf(1);
+        f.margin = UiTheme.MARGIN;
+        f.boxH = BOX_H;
+        f.gap = GRID_GAP;
+        f.actionTop = RESULT_ACTION_TOP;
+        f.actionH = CTA_H;
+        f.actionW = 300f;
+        f.kickerTop = PAGE_KICKER;
+        return f;
+    }
 
     public LightChaseApp(ClientGateway offlineGateway) {
         this(offlineGateway, null, null);
@@ -239,7 +388,12 @@ public final class LightChaseApp extends ApplicationAdapter {
         // decided in one place, ClientAssets.MAP, so a switch to the formal map is all-or-nothing.
         data = DataFiles.read(Gdx.files.internal(ClientAssets.MAP).readBytes(),
                 Gdx.files.internal(ClientAssets.RULES).readBytes());
-        if (offlineGateway instanceof FakeGateway) ((FakeGateway) offlineGateway).configure(data);
+        if (offlineGateway instanceof FakeGateway) {
+            FakeGateway fixture = (FakeGateway) offlineGateway;
+            fixture.configure(data);
+            // The demo opponent waits a beat, so the lobby's READY -> CANCEL state is visible.
+            fixture.useOpponentReadyDelay(2.0f);
+        }
 
         // Without blending every translucent shape renders opaque, which turned the flashlight
         // beam into a solid cream wedge instead of light.
@@ -249,8 +403,10 @@ public final class LightChaseApp extends ApplicationAdapter {
         batch = new SpriteBatch();
         // Blackout layout needs a real size hierarchy; the stock 15 px bitmap font cannot give it.
         fonts = UiFonts.load();
+        widgets = new Widgets(batch, fonts, uiRound);
         font = fonts.mono;
         uiRound.create();
+        touch.setWorldWidth(ui.getWorldWidth());
         worldRenderer = new WorldRenderer(shapes, worldCamera, uiCamera, world, ui, data);
 
         Gdx.input.setInputProcessor(new InputAdapter() {
@@ -259,10 +415,11 @@ public final class LightChaseApp extends ApplicationAdapter {
                 Vector2 p = unproject(sx, sy);
                 if (p.x < 0 || p.x > ui.getWorldWidth() || p.y < 0 || p.y > TouchController.UI_HEIGHT) return false;
                 if (page() != Page.MATCH) return tap(p, pointer);
+                actionDownMs = System.nanoTime() / 1_000_000L;
                 // A page-level button on the match screen (QUIT) must win over the touch controls,
                 // but every other touch still belongs to the stick/hold/drop.
                 if (tap(p, pointer)) return true;
-                return touch.down(pointer, p.x, p.y, selectedRole == Role.THIEF);
+                return touch.down(pointer, p.x, p.y, lobby.selectedRole == Role.THIEF, carrying());
             }
             @Override public boolean touchDragged(int sx, int sy, int pointer) {
                 if (page() != Page.MATCH) return false;
@@ -270,7 +427,13 @@ public final class LightChaseApp extends ApplicationAdapter {
                 return touch.drag(pointer, p.x, p.y);
             }
             @Override public boolean touchUp(int sx, int sy, int pointer, int button) {
+                boolean wasAction = touch.holdPointer() == pointer;
+                long heldMs = System.nanoTime() / 1_000_000L - actionDownMs;
                 touch.up(pointer);
+                // A quick tap while carrying puts the material down where the thief stands.
+                boolean atTarget = view != null && view.thief != null
+                        && view.thief.interaction.candidate != null;
+                if (wasAction && carrying() && heldMs < 300L && !atTarget) touch.fireDrop();
                 return true;
             }
             @Override public boolean touchCancelled(int sx, int sy, int pointer, int button) {
@@ -302,6 +465,7 @@ public final class LightChaseApp extends ApplicationAdapter {
     @Override public void resize(int width, int height) {
         world.update(width, height);
         ui.update(width, height, true);
+        touch.setWorldWidth(ui.getWorldWidth());
     }
 
     @Override public void pause() {
@@ -319,12 +483,12 @@ public final class LightChaseApp extends ApplicationAdapter {
         connectionDetail = "";
         // Coming back from the background always starts on a fresh menu: no half-chosen role, no
         // half-played READY button, exactly the state of a first launch.
-        selectedRole = null;
-        suppressRoomRole = true;
-        readyReveal = 0f;
-        readyPress = 0f;
-        readyQueued = false;
-        readyReturning = false;
+        lobby.selectedRole = null;
+        lobby.suppressRoomRole = true;
+        lobby.readyReveal = 0f;
+        lobby.readyPress = 0f;
+        lobby.readyQueued = false;
+        lobby.readyReturning = false;
         shownPage = null;
         fadePhase = 0;
         fadeT = 0f;
@@ -423,15 +587,23 @@ public final class LightChaseApp extends ApplicationAdapter {
                 if (!ConnectionStates.isSessionAlive(s.state)) { dropFrame(); touch.clear(); }
             }); }
             public void onRoom(RoomState s) { callbacks.add(() -> {
+                // A countdown means a match is beginning: whatever tick the previous one ended on
+                // must not shadow the new one's counter.
+                if (s.phase == RoomPhase.COUNTDOWN && (room == null || room.phase != RoomPhase.COUNTDOWN)) {
+                    lastViewMatchId = null;
+                    lastViewTick = Long.MIN_VALUE;
+                    interpolator.clear();
+                    resetActionButton();
+                }
                 room = s;
                 if (s.phase == RoomPhase.LOBBY || s.phase == RoomPhase.COUNTDOWN) {
                     dropFrame();
                     touch.clear();
                 }
                 for (RoomPlayer p : s.players) {
-                    if (!suppressRoomRole && session != null
+                    if (!lobby.suppressRoomRole && session != null
                             && session.playerId.equals(p.playerId) && p.role != null) {
-                        selectedRole = p.role;
+                        lobby.selectedRole = p.role;
                     }
                 }
             }); }
@@ -493,6 +665,14 @@ public final class LightChaseApp extends ApplicationAdapter {
         // notice line with steps the player never took.
         if ("HELLO".equals(s.action) || "JOIN_ROOM".equals(s.action) || "HEARTBEAT".equals(s.action)) return;
         quit.onControl(s.action, s.state);
+        // A rejected role belongs next to that role, not in the footer with the ready counter.
+        if ("SELECT_ROLE".equals(s.action) && s.state == ControlStatus.State.FAILED) {
+            lobby.roleNoticeText = readableError(s.errorCode);
+            lobby.roleNoticeRole = rolePickPending;
+            lobby.roleNoticeT = 2.6f;
+            pendingControls.remove(s.action);
+            return;
+        }
         // Only failures are worth a line. A successful SELECT_ROLE is already visible as the
         // highlighted role row - printing "SELECT_ROLE: SUCCEEDED" under it says nothing.
         switch (s.state) {
@@ -528,10 +708,20 @@ public final class LightChaseApp extends ApplicationAdapter {
         }
     }
 
-    /**
-     * Clears every per-connection artifact. Shared by disconnect, fatal error, transport switch and
-     * resume so the four paths cannot drift apart.
-     */
+    /** Puts the action button back to its freshly-spawned state. */
+    private void resetActionButton() {
+        touch.clear();
+        actionButton.reset();
+    }
+
+    /** One context per frame; pages never hold state of their own. */
+    private PageContext pageContext() {
+        if (pageContext == null || pageContext.worldWidth != ui.getWorldWidth()) {
+            pageContext = new PageContext(batch, fonts, uiRound, widgets, ui.getWorldWidth());
+        }
+        return pageContext;
+    }
+
     private void resetSession() {
         session = null;
         room = null;
@@ -542,6 +732,7 @@ public final class LightChaseApp extends ApplicationAdapter {
         quit.reset();
         lastViewMatchId = null;
         lastViewTick = Long.MIN_VALUE;
+        resetActionButton();
     }
 
     /**
@@ -582,6 +773,10 @@ public final class LightChaseApp extends ApplicationAdapter {
             startWash(7);
             return true;
         }
+        float fieldY = UiTheme.H - (editorFieldTop() + 66f);
+        if (inside(p, fx, fieldY, fw, 66f)) {
+            Gdx.input.setOnscreenKeyboardVisible(true);
+        }
         return true;                        // everything else is behind the modal
     }
 
@@ -602,7 +797,7 @@ public final class LightChaseApp extends ApplicationAdapter {
             }
             float actY = UiTheme.yFromTop(CONNECT_ACTION_TOP, CTA_H);
             if (inside(p, UiTheme.MARGIN, actY, CTA_W, CTA_H)) { startWash(0); return true; }
-            if (mode != Mode.LAN
+            if (scenarioFade > 0.5f
                     && inside(p, scenarioX(ui.getWorldWidth()), actY, SCENARIO_W, CTA_H)) {
                 startWash(2);
                 return true;
@@ -633,13 +828,15 @@ public final class LightChaseApp extends ApplicationAdapter {
             // Boxes mirror the mockup: the whole role row is tappable, not just the name.
             if (inside(p, ROLE_CX - 200f, UiTheme.yFromTop(ROLE1_TOP - 8f, 108f), 420f, 108f)) {
                 recordPress("role-police");
-                suppressRoomRole = false;
+                lobby.suppressRoomRole = false;
+                rolePickPending = Role.POLICE;
                 if (!pending("SELECT_ROLE")) gateway.selectRole(Role.POLICE);
                 return true;
             }
             if (inside(p, ROLE_CX - 200f, UiTheme.yFromTop(ROLE2_TOP - 8f, 108f), 420f, 108f)) {
                 recordPress("role-thief");
-                suppressRoomRole = false;
+                lobby.suppressRoomRole = false;
+                rolePickPending = Role.THIEF;
                 if (!pending("SELECT_ROLE")) gateway.selectRole(Role.THIEF);
                 return true;
             }
@@ -647,11 +844,15 @@ public final class LightChaseApp extends ApplicationAdapter {
                 recordPress("ready");
                 // The click starts the animation; the request goes out when it lands, so the
                 // button reacts before the network does.
-                if (selectedRole == null || readyReveal < 0.5f) return true;
-                if (!pending("SET_READY") && !readyQueued) {
-                    readyLabelAtPress = isSelfReady() ? "CANCEL" : "READY";
-                    readyQueued = true;
-                    readyPress = 0f;
+                if (lobby.selectedRole == null || lobby.readyReveal < 0.5f) return true;
+                if (!pending("SET_READY") && !lobby.readyQueued) {
+                    // Two words: the one under the finger now, and the one that replaces it at the
+                    // peak of the wash. Both are decided here, so the swap needs no server reply.
+                    boolean wasReady = isSelfReady();
+                    lobby.readyLabelAtPress = wasReady ? "CANCEL" : "READY";
+                    lobby.readyLabelAfter = wasReady ? "READY" : "CANCEL";
+                    lobby.readyQueued = true;
+                    lobby.readyPress = 0f;
                 }
                 return true;
             }
@@ -659,9 +860,9 @@ public final class LightChaseApp extends ApplicationAdapter {
                 recordPress("leave");
                 // The animation runs first; the request goes out once the rule is at full size,
                 // otherwise the screen changes before anything can be seen.
-                if (!pending("LEAVE_ROOM") && !leaveQueued) {
-                    leaveQueued = true;
-                    leaveT = 0f;
+                if (!pending("LEAVE_ROOM") && !lobby.leaveQueued) {
+                    lobby.leaveQueued = true;
+                    lobby.leaveT = 0f;
                 }
                 return true;
             }
@@ -678,8 +879,8 @@ public final class LightChaseApp extends ApplicationAdapter {
         }
 
         if (page == Page.MATCH) {
-            if (inside(p, QUIT_X, QUIT_Y, QUIT_W, QUIT_H)) {
-                requestQuit();
+            if (inside(p, quitX(ui.getWorldWidth()), quitY(), QUIT_W, QUIT_H)) {
+                startWash(9);
                 return true;
             }
             return false;
@@ -702,10 +903,12 @@ public final class LightChaseApp extends ApplicationAdapter {
 
     /** Opens the inline editor on one of the three connection fields. */
     private void openEditor(int field) {
-        if (editingField >= 0) return;
+        if (editingField >= 0 || field < 0 || field > 2) return;
         editingField = field;
         editText.setLength(0);
         editText.append(field == 0 ? host : field == 1 ? port : roomId);
+        // A field tap means "I want to type", so the keyboard comes up with the panel. It is only
+        // ever raised from here - MODE and SCENARIO never open the editor.
         Gdx.input.setOnscreenKeyboardVisible(true);
     }
 
@@ -721,10 +924,13 @@ public final class LightChaseApp extends ApplicationAdapter {
         closeEditor();
     }
 
+    private float editorFieldTop() { return EDITOR_TOP + 30f; }
+
     private void closeEditor() {
         editingField = -1;
         editText.setLength(0);
         Gdx.input.setOnscreenKeyboardVisible(false);
+        if (hideKeyboardHook != null) hideKeyboardHook.run();
     }
 
     private String editorTitle() {
@@ -786,7 +992,7 @@ public final class LightChaseApp extends ApplicationAdapter {
     private void drawUi(Page page) {
         ui.apply();
         shapes.setProjectionMatrix(uiCamera.combined);
-        // ShapeRenderer does not turn blending on for itself; without this every translucent
+        // ShapeRenderer does not lobby.turn blending on for itself; without this every translucent
         // beam renders as an opaque slab.
         Gdx.gl.glEnable(GL20.GL_BLEND);
         Gdx.gl.glBlendFunc(GL20.GL_SRC_ALPHA, GL20.GL_ONE_MINUS_SRC_ALPHA);
@@ -805,14 +1011,16 @@ public final class LightChaseApp extends ApplicationAdapter {
                 // Rounded, pure white, eight units: a hairline disappears on a phone.
                 lobbyCapsule(shapes, UiTheme.MARGIN, RULE1_TOP, w - 2 * UiTheme.MARGIN, RULE_H, Color.WHITE);
                 lobbyCapsule(shapes, UiTheme.MARGIN, RULE2_TOP + bs, w - 2 * UiTheme.MARGIN, RULE_H, Color.WHITE);
-                lobbyRoleMarker(shapes, ROLE1_TOP, "POLICE", selectPolice);
-                lobbyRoleMarker(shapes, ROLE2_TOP, "THIEF", selectThief);
-                lobbyPoliceIcon(shapes, ROLE_CX + ICON_DX, UiTheme.H - (ROLE1_TOP + 38f));
-                lobbyThiefIcon(shapes, ROLE_CX + ICON_DX, UiTheme.H - (ROLE2_TOP + 38f), selectThief);
+                lobbyRoleMarker(shapes, ROLE1_TOP, "POLICE", lobby.selectPolice);
+                lobbyRoleMarker(shapes, ROLE2_TOP, "THIEF", lobby.selectThief);
+                lobbyArt.police(shapes, ROLE_CX + ICON_DX, UiTheme.H - (ROLE1_TOP + 38f), lobby.turn,
+                lobby.lobbyClock, lobby.beamOn);
+                lobbyArt.thief(shapes, ROLE_CX + ICON_DX, UiTheme.H - (ROLE2_TOP + 38f), lobby.selectThief,
+                lobby.lobbyClock);
                 // Five slots at rest, the full label when pressed; 1.5 units under the text.
                 float leaveW = UiDraw.width(fonts.mono, "LEAVE ROOM", 1.5f);
                 float unit = UiDraw.width(fonts.mono, "M", 1.5f);
-                float hot = UiAnim.smooth(leaveHot);
+                float hot = UiAnim.smooth(lobby.leaveHot);
                 float ctop = CTA_TOP + bs + (CTA_H - UiDraw.capHeight(fonts.cta)) / 2f;
                 float leaveTop = ctop + (UiDraw.capHeight(fonts.cta) - UiDraw.capHeight(fonts.mono)) / 2f;
                 // Half of the gap beneath the POLICE name (name ink ends at +35, its marker at +46).
@@ -827,52 +1035,38 @@ public final class LightChaseApp extends ApplicationAdapter {
             }
             case COUNTDOWN: {
                 float w = ui.getWorldWidth();
-                pageRule(shapes, w, CONNECT_RULE1);
-                // Three dots, one per second: the current beat is white, the rest wait their turn.
-                int seconds = room == null ? 0 : (int) Math.ceil(room.countdownRemainingMs / 1000.0);
-                int total = Math.max(1, (int) Math.round(countdownTotalMs() / 1000.0));
-                int done = Math.max(0, total - seconds);
-                for (int i = 0; i < total; i++) {
-                    float cx = w / 2f + (i - (total - 1) / 2f) * 64f;
-                    shapes.setColor(i < done ? Color.WHITE : new Color(0.24f, 0.24f, 0.24f, 1f));
-                    shapes.circle(cx, UiTheme.H - 320f, 14f, 24);
+                // A white page: everything else is removed, so the count is the only thing to read.
+                shapes.setColor(new Color(0.949f, 0.949f, 0.941f, 1f));
+                shapes.rect(0f, 0f, w, UiTheme.H);
+
+                float dotY = UiTheme.H - 300f;
+                float gap = 34f;
+                float dotR = 9f;
+                float firstX = w / 2f - gap;
+                for (int i = 0; i < 3; i++) {
+                    // Brightness, not a filled slot: each dot eases between dim and lit.
+                    float lit = countDot[i];
+                    shapes.setColor(0.08f, 0.08f, 0.09f, 0.20f + 0.80f * lit);
+                    shapes.circle(firstX + i * gap, dotY, dotR, 28);
                 }
                 break;
             }
             case MATCH: {
                 float w = ui.getWorldWidth();
-                pageRule(shapes, w, MATCH_RULE);
-                // Stick: a thin ring plus a dot that follows the thumb.
-                shapes.setColor(1f, 1f, 1f, 0.10f);
-                shapes.circle(TouchController.JOY_X, TouchController.JOY_Y, TouchController.JOY_R, 48);
-                shapes.setColor(1f, 1f, 1f, 0.22f);
-                shapes.circle(TouchController.JOY_X, TouchController.JOY_Y, TouchController.JOY_R, 48);
-                shapes.setColor(0.043f, 0.063f, 0.090f, 1f);
-                shapes.circle(TouchController.JOY_X, TouchController.JOY_Y, TouchController.JOY_R - 2f, 48);
+                // Stick: a hollow ring so the map shows through, plus a dot for the thumb.
+                ShapeKit.ring(shapes, TouchController.JOY_X, TouchController.JOY_Y,
+                        TouchController.JOY_R, 7.5f, new Color(1f, 1f, 1f, 0.55f));
                 shapes.setColor(Color.WHITE);
                 shapes.circle(TouchController.JOY_X + (float) touch.moveX() * 55f,
                         TouchController.JOY_Y + (float) touch.moveY() * 55f, 26f, 32);
-                if (selectedRole == Role.THIEF) {
-                    ring(shapes, TouchController.HOLD_X, TouchController.HOLD_Y, TouchController.HOLD_R,
-                            touch.interacting() ? 1f : 0.28f);
-                    ring(shapes, TouchController.DROP_X, TouchController.DROP_Y, TouchController.DROP_R, 0.28f);
-                    float progress = interactionProgress();
-                    if (progress > 0) {
-                        float bw = 180f;
-                        lobbyCapsule(shapes, TouchController.HOLD_X - bw / 2f,
-                                UiTheme.H - (TouchController.HOLD_Y + 96f), bw, 10f,
-                                new Color(1f, 1f, 1f, 0.22f));
-                        lobbyCapsule(shapes, TouchController.HOLD_X - bw / 2f,
-                                UiTheme.H - (TouchController.HOLD_Y + 96f), bw * progress, 10f, Color.WHITE);
-                    }
+                if (lobby.selectedRole == Role.THIEF) {
+                    actionButton.drawShapes(shapes, touch.actionX(), touch.actionY(),
+                            TouchController.HOLD_R);
                 }
-                float quitTextTop = UiTheme.H - QUIT_Y - QUIT_H
-                        + (QUIT_H - UiDraw.capHeight(fonts.mono)) / 2f;
-                float quitLabelW = UiDraw.width(fonts.mono, "QUIT MATCH", 1.5f);
-                scratchColor.set(quit.active() ? UiTheme.ACCENT : LOBBY_UNDER);
-                float quitRuleW = quitLabelW * 0.42f;
-                lobbyCapsule(shapes, QUIT_X + QUIT_W / 2f - quitRuleW / 2f,
-                        quitTextTop + UiDraw.capHeight(fonts.mono) + 6f, quitRuleW, 5f, scratchColor);
+                // Same rounded navy slab as the menu's primary action, washed on press.
+                scratchColor.set(READY_BLUE);
+                scratchColor.lerp(Color.WHITE, washOf(9));
+                lobbyCapsule(shapes, quitX(w), QUIT_TOP, QUIT_W, QUIT_H, scratchColor);
                 break;
             }
             case RESULT: {
@@ -885,6 +1079,11 @@ public final class LightChaseApp extends ApplicationAdapter {
                 break;
         }
         shapes.end();
+    }
+
+    /** True when the thief is holding a material, which turns the action button into DROP. */
+    private boolean carrying() {
+        return view != null && view.thief != null && view.thief.carriedMaterialId != null;
     }
 
     private float interactionProgress() {
@@ -907,22 +1106,33 @@ public final class LightChaseApp extends ApplicationAdapter {
         batch.begin();
 
         switch (page) {
-            case CONNECT: drawConnectText(); break;
-            case LOBBY: drawLobbyText(); break;
-            case COUNTDOWN: drawCountdownText(); break;
-            case MATCH: drawMatchText(); break;
-            case RESULT: drawResultText(); break;
+            case CONNECT: ConnectView.draw(pageContext(), connectFrame()); break;
+            case LOBBY:
+                if (room != null) lobbyView.draw(pageContext(), lobbyFrame(ui.getWorldWidth()));
+                break;
+            case COUNTDOWN: MatchViews.drawCountdown(pageContext(), countFade); break;
+            case MATCH:
+                MatchViews.drawHud(pageContext(), view, lobby.selectedRole, actionButton, touch,
+                        marksFade, deliveredFade, exitsFade, quit, (float) ticksPerSecond(),
+                        quitX(ui.getWorldWidth()), QUIT_TOP, QUIT_W, QUIT_H);
+                break;
+            case RESULT: ResultView.draw(pageContext(), resultFrame()); break;
             default: break;
         }
 
-        if (!errorText.isEmpty()) {
-            String line = "ERROR  " + errorText;
-            float x = 30f;
-            UiDraw.text(batch, fonts.mono, line, x, 720f - 60f - UiDraw.capHeight(fonts.mono),
-                    UiTheme.ACCENT, 1.5f);
-        } else if (!notice.isEmpty()) {
-            UiDraw.text(batch, fonts.mono, notice, 30f, 720f - 60f - UiDraw.capHeight(fonts.mono),
-                    UiTheme.TEXT_SOFT, 1.5f);
+        // Both message lines share the left margin of every other row on every page.
+        float msgMargin = UiTheme.MARGIN;
+        float msgWidth = ui.getWorldWidth() - 2f * msgMargin;
+        // One slot for both lines: an error outranks a notice while it is visible.
+        TextFade message = errorFade.visible() && errorFade.alpha() >= noticeFade.alpha()
+                ? errorFade : (noticeFade.visible() ? noticeFade : null);
+        if (message != null) {
+            boolean isError = message == errorFade;
+            scratchColor.set(isError ? UiTheme.ACCENT : UiTheme.TEXT_SOFT);
+            scratchColor.a = message.alpha();
+            String line = isError ? "ERROR  " + message.shown() : message.shown();
+            UiDraw.text(batch, fonts.mono, UiDraw.fit(fonts.mono, line, msgWidth, 1.5f),
+                    msgMargin, 720f - 60f - UiDraw.capHeight(fonts.mono), scratchColor, 1.5f);
         }
 
         // The cover goes last, on top of everything including the notice line: nothing may show
@@ -934,158 +1144,14 @@ public final class LightChaseApp extends ApplicationAdapter {
             uiRound.rect(batch, scratchColor, 0f, 0f,
                     ui.getWorldWidth(), UiTheme.H);
         }
-        if (editingField >= 0) drawEditor();
+        if (editorFade > 0.01f) {
+            FieldEditor.draw(pageContext(), editorTitle(), editText.toString(), washOf(7),
+                    washOf(8), editorFade);
+        }
         batch.end();
     }
 
-    private void drawConnectText() {
-        float w = ui.getWorldWidth();
-        float m = UiTheme.MARGIN;
-        float bs = bottomShift();
 
-        UiDraw.text(batch, fonts.display, "LIGHT \u00b7 CHASE", m, 64f, UiTheme.TEXT, 1.5f);
-        UiDraw.text(batch, fonts.monoBig, "CONNECTION", m + 2f, PAGE_KICKER, UiTheme.ACCENT, 2.5f);
-
-        // Three equal columns: the gaps between them are the same as every other gap.
-        float colW = connectColumn(w);
-        long since = System.nanoTime() / 1_000_000L - editedAtMs;
-        chip(m, CONNECT_CHIP_TOP, colW, BOX_H, "SERVER HOST", host,
-                editedChip == 0 && since < 700, washOf(4));
-        chip(m + colW + GRID_GAP, CONNECT_CHIP_TOP, colW, BOX_H, "PORT", port,
-                editedChip == 1 && since < 700, washOf(5));
-        chip(m + 2f * (colW + GRID_GAP), CONNECT_CHIP_TOP, colW, BOX_H, "ROOM", roomId,
-                editedChip == 2 && since < 700, washOf(6));
-
-        primaryButton(m, CONNECT_ACTION_TOP, CTA_W, CTA_H, "CONNECT", lanGatewayFactory != null,
-                washOf(0));
-        if (mode != Mode.LAN) {
-            framedAction(scenarioX(w), CONNECT_ACTION_TOP, SCENARIO_W, CTA_H, scenarioLabel(),
-                    true, washOf(2));
-        }
-        framedAction(modeX(w), CONNECT_ACTION_TOP, MODE_W, CTA_H, modeLabel(),
-                true, washOf(3));
-
-        kv(m, CONNECT_RULE2 + bs + 44f, "STATUS", connectionState, UiTheme.TEXT);
-        if (!connectionDetail.isEmpty()) {
-            UiDraw.text(batch, fonts.mono, connectionDetail, m + 260f, CONNECT_RULE2 + bs + 68f,
-                    LOBBY_GREY, 1f);
-        }
-        if (mode == Mode.LAN) {
-            boolean ok = permission == null || permission.granted();
-            UiDraw.text(batch, fonts.mono,
-                    "ACCESS_LOCAL_NETWORK  " + (permission == null ? "N/A" : permission.describe()),
-                    m, CONNECT_RULE2 + bs + 112f, ok ? LOBBY_GREY : UiTheme.ACCENT, 1f);
-        }
-        if (errorText.isEmpty() && notice.isEmpty()) {
-            UiDraw.text(batch, fonts.mono, "TAP A FIELD TO EDIT \u00b7 SCENARIO REPLAYS FIXTURE FAILURES",
-                    m, 652f + bs, LOBBY_GREY, 1f);
-        }
-    }
-
-    private void drawLobbyText() {
-        if (room == null) return;
-        float w = ui.getWorldWidth();
-        float m = UiTheme.MARGIN;
-        float bs = bottomShift();
-
-        UiDraw.text(batch, fonts.display, "LIGHT \u00b7 CHASE", m, 64f, UiTheme.TEXT, 1.5f);
-        UiDraw.text(batch, fonts.monoBig, "LOBBY", m + 2f, 136f, UiTheme.ACCENT, 2.5f);
-
-        String modeLabel = "MODE  " + mode.name();
-        float modeTop = 64f + (UiDraw.capHeight(fonts.display) - UiDraw.capHeight(fonts.mono)) / 2f;
-        UiDraw.text(batch, fonts.mono, modeLabel,
-                w - m - UiDraw.width(fonts.mono, modeLabel, 1f), modeTop, LOBBY_GREY, 1f);
-
-        // ---- role cards ------------------------------------------------------------------
-        // The lit field is stacked rectangles: the centre saturates, the rim fades into the black,
-        // so the text sits in light rather than in a box.
-        float lit = UiAnim.smooth(selectPolice);
-        lobbyRoleCard(ROLE1_TOP, "POLICE", "flashlight / mark three times", selectPolice, beamOn);
-        lobbyRoleCard(ROLE2_TOP, "THIEF", "three drops / then escape", selectThief, 0f);
-
-        // ---- fact boxes ------------------------------------------------------------------
-        RoomPlayer self = selfPlayer();
-        RoomPlayer other = opponentPlayer();
-        float x0 = w * 0.54f;
-        float gap = GRID_GAP;
-        float boxW = (w - m - x0 - gap) / 2f;
-        lobbyBox(0, x0, ROLE1_TOP, boxW, "ROOM", room.roomId);
-        lobbyBox(1, x0 + boxW + gap, ROLE1_TOP, boxW, "MAP", room.mapId);
-        // Both chips follow the local choice: until the player picks, the room may still hold the
-        // role from the previous match, and echoing it would look like the choice was kept.
-        lobbyBox(2, x0, ROLE2_TOP, boxW, "YOU",
-                selectedRole == null ? "-" : selectedRole.name());
-        lobbyBox(3, x0 + boxW + gap, ROLE2_TOP, boxW, "OPPONENT",
-                selectedRole == null || other == null || other.role == null ? "-" : other.role.name());
-
-        // ---- primary action ---------------------------------------------------------------
-        // The action only exists once a role has been chosen; before that it would be a button
-        // that cannot do its job, so it is simply not on screen.
-        boolean busy = pending("SET_READY");
-        float reveal = UiAnim.smooth(readyReveal);
-        float pressLit = UiAnim.smooth(readyPress);
-        float bw = CTA_W;
-        float bh = CTA_H;
-        float bx = m;
-        float btop = CTA_TOP + bs + (1f - reveal) * 10f;
-        if (reveal > 0.01f) {
-            scratchColor.set(busy ? UiTheme.LINE : READY_BLUE);
-            scratchColor.lerp(Color.WHITE, pressLit);
-            scratchColor.a = reveal;
-            uiRound.fill(batch, scratchColor, bx, btop, bw, bh);
-
-            boolean pressing = readyQueued || readyReturning;
-            String cta;
-            if (busy) {
-                cta = "WAITING...";
-            } else if (pressing) {
-                cta = readyLabelAtPress;                 // no text change under the finger
-            } else {
-                cta = isSelfReady() ? "CANCEL" : "READY";
-            }
-            // The label stays white: as the slab whitens the two converge and the button washes
-            // out into the incoming white screen rather than switching colour.
-            scratchColor.set(busy ? LOBBY_GREY : Color.WHITE);
-            scratchColor.a = reveal;
-            fitText(fonts.cta, cta, bx, btop, bw, bh, scratchColor);
-        }
-        float ctop = CTA_TOP + bs + (CTA_H - UiDraw.capHeight(fonts.cta)) / 2f;
-
-        // Same line as READY, centred under the OPPONENT chip.
-        float leaveTop = ctop + (UiDraw.capHeight(fonts.cta) - UiDraw.capHeight(fonts.mono)) / 2f;
-        float leaveW2 = UiDraw.width(fonts.mono, "LEAVE ROOM", 1.5f);
-        scratchColor.set(LOBBY_GREY);
-        scratchColor.lerp(Color.WHITE, UiAnim.smooth(leaveHot));
-        UiDraw.text(batch, fonts.mono, "LEAVE ROOM", leaveCentre(w) - leaveW2 / 2f, leaveTop,
-                scratchColor, 1.5f);
-
-        // ---- footer ------------------------------------------------------------------------
-        int ready = 0;
-        int total = 0;
-        for (RoomPlayer p : room.players) {
-            total++;
-            if (p.ready) ready++;
-        }
-        String status;
-        Color statusColor = LOBBY_GREY;
-        if (total <= 1) {
-            status = "WAITING FOR A SECOND PLAYER";
-        } else if (ready >= total) {
-            status = "STARTING...";
-            statusColor = UiTheme.ACCENT;
-        } else if (ready == 0) {
-            status = "0 / " + total + " READY \u00b7 BOTH MUST READY";
-        } else {
-            status = ready + " / " + total + " READY \u00b7 WAITING FOR OPPONENT";
-        }
-        UiDraw.text(batch, fonts.mono, status, m, 652f + bs, statusColor, 1f);
-
-        if (!errorText.isEmpty()) {
-            String line = "ERROR  " + errorText;
-            UiDraw.text(batch, fonts.mono, line,
-                    w - m - UiDraw.width(fonts.mono, line, 1f), 198f, UiTheme.ACCENT, 1f);
-        }
-    }
 
     private final Color scratchColor = new Color();
 
@@ -1137,6 +1203,24 @@ public final class LightChaseApp extends ApplicationAdapter {
         return UiAnim.smooth(Math.min(1f, wash[id]));
     }
 
+
+    /** The global error line and the softer notice line that shares its slot. */
+    private final TextFade errorFade = new TextFade();
+    private final TextFade noticeFade = new TextFade();
+    private final TextFade statusFade = new TextFade();
+    /** The lobby's footer line: the ready count hands over to STARTING by cross-fading. */
+    private final TextFade lobbyStatusFade = new TextFade();
+    /** The countdown digit cross-fades: 3 out, 2 in, and so on. */
+    private final TextFade countFade = new TextFade();
+    /** Per-dot brightness: the current digit lights its own dot, eased. */
+    private final float[] countDot = new float[3];
+    private final TextFade marksFade = new TextFade();
+    private final TextFade deliveredFade = new TextFade();
+    private final TextFade exitsFade = new TextFade();
+    private final TextFade detailFade = new TextFade();
+    private final TextFade permFade = new TextFade();
+
+
     private void pulse(int id) {
         pulseId = id;
         pulseT = 0f;
@@ -1148,6 +1232,68 @@ public final class LightChaseApp extends ApplicationAdapter {
     }
 
     /** A ring, used for the hold/drop controls. */
+    /**
+     * HOLD: a green disc with a white rim, a clamp closed around the kept material. A pictogram
+     * rather than a literal hand - at 70 px the silhouette of a hand turns into a blob.
+     */
+    private void drawHoldDisc(ShapeRenderer shapes, float cx, float cy, float r, float alpha) {
+        Color bed = new Color(0.145f, 0.475f, 0.302f, 1f);
+        Color ink = new Color(0.043f, 0.086f, 0.063f, 0.95f);
+        Color gem = new Color(1f, 0.94f, 0.72f, 1f);
+
+        shapes.setColor(1f, 1f, 1f, alpha);
+        shapes.circle(cx, cy, r, 48);
+        shapes.setColor(bed);
+        shapes.circle(cx, cy, r - 3f, 48);
+
+        float u = r / 70f;
+        // a U-shaped clamp: two tall jaws joined underneath, open at the top
+        ShapeKit.capsule(shapes, cx - 28f * u, cy - 30f * u, 18f * u, 58f * u, ink);
+        ShapeKit.capsule(shapes, cx + 10f * u, cy - 30f * u, 18f * u, 58f * u, ink);
+        ShapeKit.capsule(shapes, cx - 26f * u, cy - 32f * u, 52f * u, 16f * u, ink);
+        // the material squeezed between them
+        shapes.setColor(gem);
+        shapes.triangle(cx, cy + 34f * u, cx - 15f * u, cy + 10f * u, cx + 15f * u, cy + 10f * u);
+        shapes.triangle(cx - 15f * u, cy + 10f * u, cx + 15f * u, cy + 10f * u, cx, cy - 14f * u);
+        shapes.setColor(1f, 1f, 1f, 0.9f);
+        shapes.triangle(cx, cy + 34f * u, cx - 5f * u, cy + 14f * u, cx + 6f * u, cy + 14f * u);
+    }
+
+    /** DROP: a yellow disc with a white rim, the material leaving with a downward arrow. */
+    private void drawDropDisc(ShapeRenderer shapes, float cx, float cy, float r) {
+        Color bed = new Color(0.639f, 0.478f, 0.086f, 1f);
+        Color ink = new Color(0.114f, 0.086f, 0.020f, 0.95f);
+        Color gem = new Color(1f, 0.96f, 0.78f, 1f);
+
+        shapes.setColor(1f, 1f, 1f, 0.85f);
+        shapes.circle(cx, cy, r, 48);
+        shapes.setColor(bed);
+        shapes.circle(cx, cy, r - 3f, 48);
+
+        float u = r / 50f;
+        // the material, still in hand at the top
+        shapes.setColor(gem);
+        shapes.triangle(cx, cy + 34f * u, cx - 12f * u, cy + 16f * u, cx + 12f * u, cy + 16f * u);
+        shapes.triangle(cx - 12f * u, cy + 16f * u, cx + 12f * u, cy + 16f * u, cx, cy - 2f * u);
+        shapes.setColor(1f, 1f, 1f, 0.9f);
+        shapes.triangle(cx, cy + 34f * u, cx - 4f * u, cy + 20f * u, cx + 5f * u, cy + 20f * u);
+        // the arrow it travels along
+        shapes.setColor(ink);
+        shapes.rect(cx - 3f * u, cy - 14f * u, 6f * u, 14f * u);
+        shapes.triangle(cx - 12f * u, cy - 14f * u, cx + 12f * u, cy - 14f * u, cx, cy - 32f * u);
+    }
+
+    /** A true ring: segments laid along the circle, so the inside stays see-through. */
+
+    /** Fills the disc from the bottom up to {@code level}, clipping each stripe to the circle. */
+
+    /** The success mark: white outline, blue core, drawn one stroke at a time. */
+
+
+    /** Rounded rectangle in y-up shape coordinates, with an explicit corner radius. */
+
+    /** Capsule in y-up shape coordinates (lobbyCapsule takes a top-based y). */
+
     private void ring(ShapeRenderer shapes, float cx, float cy, float r, float alpha) {
         shapes.setColor(1f, 1f, 1f, alpha);
         shapes.circle(cx, cy, r, 48);
@@ -1156,62 +1302,22 @@ public final class LightChaseApp extends ApplicationAdapter {
     }
 
     /** White rounded chip with a label over a value, both centred. */
-    private void chip(float x, float top, float w, float h, String label, String value) {
-        chip(x, top, w, h, label, value, false, 0f);
-    }
 
     /**
      * A white chip. {@code lit} warms it while it is being pressed: white cannot wash to white, so
      * a press tints it towards the accent instead.
      */
-    private void chip(float x, float top, float w, float h, String label, String value,
-                      boolean justTapped, float lit) {
-        scratchColor.set(Color.WHITE);
-        scratchColor.lerp(new Color(0.94f, 0.80f, 0.78f, 1f), lit);
-        uiRound.fill(batch, scratchColor, x, top, w, h);
-        float cx = x + w / 2f;
-        float hLabel = UiDraw.capHeight(fonts.mono);
-        float hValue = UiDraw.capHeight(fonts.displaySmall);
-        float pad = (h - hLabel - hValue) / 3f;
-        centered(batch, fonts.mono, label, cx, top + pad, new Color(0.22f, 0.22f, 0.22f, 1f), 0.4f);
-        centered(batch, fonts.displaySmall, UiDraw.fit(fonts.displaySmall, value, w - 32f, 0.5f),
-                cx, top + pad * 2f + hLabel, UiTheme.ON_LIGHT, 0.5f);
-    }
 
     /** Deep navy slab with a white label, the same primary as the lobby. */
-    private void primaryButton(float x, float top, float w, float h, String label, boolean enabled) {
-        primaryButton(x, top, w, h, label, enabled, 0f);
-    }
 
     /** Deep navy slab that washes to white while it is being pressed, like the lobby's READY. */
-    private void primaryButton(float x, float top, float w, float h, String label, boolean enabled,
-                               float lit) {
-        scratchColor.set(enabled ? READY_BLUE : UiTheme.LINE);
-        scratchColor.lerp(Color.WHITE, lit);
-        uiRound.fill(batch, scratchColor, x, top, w, h);
-        float cw = UiDraw.width(fonts.cta, label, 1.5f);
-        float top2 = top + (h - UiDraw.capHeight(fonts.cta)) / 2f;
-        UiDraw.text(batch, fonts.cta, label, x + (w - cw) / 2f, top2,
-                enabled ? Color.WHITE : LOBBY_GREY, 1.5f);
-    }
 
     /**
      * Draws a label centred in a box, shrinking it when it would not fit. Labels are the one place
      * where a longer word must not spill outside its slab, and the boxes are fixed sizes.
      */
-    private void fitText(BitmapFont font, String label, float x, float top, float w, float h,
-                         Color color) {
-        float avail = w - 28f;
-        float full = UiDraw.width(font, label, 1.5f);
-        float k = full > avail ? Math.max(0.60f, avail / full) : 1f;
-        BitmapFont.BitmapFontData d = font.getData();
-        float base = d.scaleX;
-        if (k < 1f) d.setScale(base * k);
-        float cap = UiDraw.capHeight(font) * k;
-        float ty = top + (h - cap) / 2f;
-        UiDraw.text(batch, font, label, x + (w - full * k) / 2f, ty, color, 1.5f);
-        if (k < 1f) d.setScale(base);
-    }
+
+    /** As fitText but with a forced scale, so swapping the word never shifts the glyphs. */
 
     /** Text-only action with a marker underneath. */
     private void secondaryAction(float x, float top, String label, boolean live, int pulseId) {
@@ -1231,65 +1337,28 @@ public final class LightChaseApp extends ApplicationAdapter {
      * The inline editor. A light panel, a white field, and two navy buttons - the same shapes the
      * rest of the app uses, instead of the platform's own dialog.
      */
-    private void drawEditor() {
-        float w = ui.getWorldWidth();
-        float pw = EDITOR_W;
-        float ph = EDITOR_H;
-        float px = (w - pw) / 2f;
-        float py = EDITOR_TOP;
-
-        scratchColor.set(0f, 0f, 0f, 0.55f);
-        uiRound.rect(batch, scratchColor, 0f, 0f, w, UiTheme.H);
-
-        scratchColor.set(0.855f, 0.867f, 0.886f, 1f);
-        uiRound.fill(batch, scratchColor, px, py, pw, ph);
-
-        UiDraw.text(batch, fonts.mono, editorTitle(), px + 22f, py + 12f,
-                new Color(0.30f, 0.30f, 0.32f, 1f), 2f);
-
-        float fx = px + 22f;
-        float fy = py + 30f;
-        float fw = pw - 44f;
-        float fh = 66f;
-        uiRound.fill(batch, Color.WHITE, fx, fy, fw, fh);
-
-        String text = editText.toString();
-        while (UiDraw.width(fonts.monoBig, text, 1f) > fw - 36f && text.length() > 1) {
-            text = text.substring(1);
-        }
-        boolean caretOn = ((System.nanoTime() / 500_000_000L) & 1L) == 0L;
-        UiDraw.text(batch, fonts.monoBig, text + (caretOn ? "|" : ""), fx + 18f,
-                fy + (fh - UiDraw.capHeight(fonts.monoBig)) / 2f,
-                new Color(0.13f, 0.13f, 0.15f, 1f), 1f);
-
-        float by = py + EDITOR_BTN_TOP;
-        framedButton(fx, by, EDITOR_BTN_W, EDITOR_BTN_H, "CANCEL", washOf(8));
-        framedButton(fx + fw - EDITOR_BTN_W, by, EDITOR_BTN_W, EDITOR_BTN_H, "OK", washOf(7));
-    }
 
     /** Navy rounded button that washes white while it is pressed. */
-    private void framedButton(float x, float top, float w, float h, String label, float lit) {
-        scratchColor.set(READY_BLUE);
-        scratchColor.lerp(Color.WHITE, lit);
-        uiRound.fill(batch, scratchColor, x, top, w, h);
-        float cw = UiDraw.width(fonts.mono, label, 2f);
-        scratchColor.set(Color.WHITE);
-        UiDraw.text(batch, fonts.mono, label, x + (w - cw) / 2f,
-                top + (h - UiDraw.capHeight(fonts.mono)) / 2f, scratchColor, 2f);
-    }
 
     /**
      * A control drawn as an accent frame around the background: rounded outside, rounded inside,
      * so it reads as a nested border rather than a filled button.
      */
-    private void framedAction(float x, float top, float w, float h, String label, boolean live,
-                              float lit) {
-        // Solid accent slab with a white label; pressing washes it like every other control.
-        scratchColor.set(UiTheme.ACCENT);
-        scratchColor.lerp(Color.WHITE, lit);
-        uiRound.fill(batch, scratchColor, x, top, w, h);
-        scratchColor.set(live ? Color.WHITE : new Color(1f, 1f, 1f, 0.72f));
-        fitText(fonts.mono, label, x, top, w, h, scratchColor);
+
+
+    /** The lobby footer's current wording, before it is faded onto the screen. */
+    private String lobbyStatusText() {
+        if (room == null) return "";
+        int ready = 0;
+        int total = 0;
+        for (RoomPlayer p : room.players) {
+            total++;
+            if (p.ready) ready++;
+        }
+        if (total <= 1) return "WAITING FOR A SECOND PLAYER";
+        if (ready >= total) return "STARTING...";
+        if (ready == 0) return "0 / " + total + " READY \u00b7 BOTH MUST READY";
+        return ready + " / " + total + " READY \u00b7 WAITING FOR OPPONENT";
     }
 
     private String scenarioLabel() { return "SCENARIO  " + scenario; }
@@ -1333,45 +1402,12 @@ public final class LightChaseApp extends ApplicationAdapter {
      * Role name over its hint, both centred. When the flashlight is on, each character brightens
      * once the beam has reached it, so the words light up from right to left as the light travels.
      */
-    private void lobbyRoleCard(float top, String name, String hint, float selected, float lit) {
-        float chosen = UiAnim.smooth(selected);
-        // Unselected stays readable but clearly dimmer; selected goes all the way to white.
-        scratchColor.set(0.50f, 0.50f, 0.50f, 1f);
-        scratchColor.lerp(Color.WHITE, chosen);
-        Color warm = Color.WHITE;
-        centeredLit(batch, fonts.displayMid, name, ROLE_CX, top + 6f, scratchColor, warm, 1f, lit);
-        scratchColor.set(0.42f, 0.42f, 0.42f, 1f);
-        scratchColor.lerp(new Color(0.86f, 0.86f, 0.86f, 1f), chosen);
-        centeredLit(batch, fonts.mono, hint, ROLE_CX, top + 62f, scratchColor, warm, 0.4f, lit);
-    }
 
     /**
      * Draws a centred string character by character, mixing in the lit colour for the glyphs the
      * beam has already passed. {@code lit} is 0..1 of how far across the string the light reached.
      */
-    private void centeredLit(Batch batch, BitmapFont font, String s, float cx, float top,
-                             Color base, Color litColor, float tracking, float lit) {
-        float width = UiDraw.width(font, s, tracking);
-        float x = cx - width / 2f;
-        float edge = width * UiAnim.clamp01(lit * 1.25f);
-        for (int i = 0; i < s.length(); i++) {
-            char c = s.charAt(i);
-            float advance = advance(font, c, tracking);
-            // how far this glyph sits along the string, measured from the right edge
-            float fromRight = width - (x - (cx - width / 2f)) - advance / 2f;
-            float t = UiAnim.clamp01((edge - fromRight) / 26f);
-            scratchLit.set(base);
-            if (lit > 0.001f) scratchLit.lerp(litColor, t);
-            font.setColor(scratchLit);
-            font.draw(batch, String.valueOf(c), x, UiTheme.H - top);
-            x += advance;
-        }
-    }
 
-    private float advance(BitmapFont font, char c, float tracking) {
-        BitmapFont.Glyph g = font.getData().getGlyph(c);
-        return (g != null ? g.xadvance : font.getSpaceXadvance()) + tracking;
-    }
 
     private final Color scratchLit = new Color();
 
@@ -1379,45 +1415,8 @@ public final class LightChaseApp extends ApplicationAdapter {
      * White chip with black text. When the value changes, the old string fades out while the new
      * one fades in, so a role swap reads as a change rather than a flicker.
      */
-    private void lobbyBox(int index, float x, float top, float w, String label, String value) {
-        uiRound.fill(batch, Color.WHITE, x, top, w, BOX_H);
-        float cx = x + w / 2f;
-        // Equal space above the label, between the two lines, and below the value.
-        float hLabel = UiDraw.capHeight(fonts.mono);
-        float hValue = UiDraw.capHeight(fonts.displaySmall);
-        float pad = (BOX_H - hLabel - hValue) / 3f;
-        centered(batch, fonts.mono, label, cx, top + pad, new Color(0.22f, 0.22f, 0.22f, 1f), 0.4f);
 
-        if (value != null && !value.equals(chipShown[index])) {
-            chipPrev[index] = chipShown[index];
-            chipShown[index] = value;
-            chipFade[index] = 0f;
-        }
-        float fade = UiAnim.clamp01(chipFade[index]);
-        float valueTop = top + pad * 2f + hLabel;
-        if (chipPrev[index] != null && fade < 0.999f) {
-            centeredAlpha(batch, fonts.displaySmall, chipPrev[index], cx, valueTop,
-                    roleColor(chipPrev[index]), 0.5f, 1f - fade, w - 32f);
-        }
-        centeredAlpha(batch, fonts.displaySmall, chipShown[index], cx, valueTop,
-                roleColor(chipShown[index]), 0.5f, fade, w - 32f);
-    }
 
-    private static Color roleColor(String value) {
-        if ("POLICE".equals(value)) return ROLE_POLICE;
-        if ("THIEF".equals(value)) return ROLE_THIEF;
-        return UiTheme.ON_LIGHT;
-    }
-
-    private static void centeredAlpha(Batch batch, BitmapFont font, String s, float cx, float top,
-                                      Color color, float tracking, float alpha, float maxWidth) {
-        if (s == null || alpha <= 0.01f) return;
-        scratchAlpha.set(color);
-        scratchAlpha.a = alpha;
-        UiDraw.text(batch, font, UiDraw.fit(font, s, maxWidth, tracking),
-                cx - UiDraw.width(font, UiDraw.fit(font, s, maxWidth, tracking), tracking) / 2f,
-                top, scratchAlpha, tracking);
-    }
 
     private static final Color scratchAlpha = new Color();
 
@@ -1468,12 +1467,7 @@ public final class LightChaseApp extends ApplicationAdapter {
 
     /** A rule with round caps: rectangle body plus a circle at each end. */
     private void lobbyCapsule(ShapeRenderer shapes, float x, float top, float w, float h, Color color) {
-        float y = UiTheme.yFromTop(top, h);
-        float r = h / 2f;
-        shapes.setColor(color);
-        shapes.rect(x + r, y, Math.max(0f, w - 2 * r), h);
-        shapes.circle(x + r, y + r, r, 20);
-        shapes.circle(x + w - r, y + r, r, 20);
+        ShapeKit.capsule(shapes, x, UiTheme.yFromTop(top, h), w, h, color);
     }
 
     // ---- characters -------------------------------------------------------------------------
@@ -1485,183 +1479,13 @@ public final class LightChaseApp extends ApplicationAdapter {
      * and the beam grows back out towards the words. Brightness falls off with distance, so the
      * beam is strongest at the lens.
      */
-    private void lobbyPoliceIcon(ShapeRenderer shapes, float cx, float cy) {
-        // Not chosen: the head is turned towards the role name and the lamp is off. Chosen: it
-        // turns away first, then the torch comes on with exactly the drawing the idle state used
-        // to have - a wide, gentle sway and a short soft cone.
-        float facing = UiAnim.smooth(turn);
-        float base = UiAnim.lerp((float) Math.PI, 0f, facing);
-        // The head always sweeps with the same amplitude; only the centre of the sweep moves:
-        // idle looks around the role name, chosen turns away from it.
-        float wander = UiAnim.sway(lobbyClock, 0.9f) * 0.55f;
-        float angle = base + wander;
-
-        float c = (float) Math.cos(angle);
-        float s = (float) Math.sin(angle);
-        float lx = cx + c * (ICON_R - 2f);
-        float ly = cy + s * (ICON_R - 2f);
-
-        // The idle cone, unchanged: 120 long, 45% at the lens, gone at the far end.
-        if (beamOn > 0.01f) {
-            float reach = 120f * beamOn;
-            float near = 0.45f * beamOn;
-            gradTri(shapes, lx, ly, near,
-                    lx + (float) Math.cos(angle - 0.26f) * reach,
-                    ly + (float) Math.sin(angle - 0.26f) * reach, 0.02f * beamOn,
-                    lx + (float) Math.cos(angle + 0.26f) * reach,
-                    ly + (float) Math.sin(angle + 0.26f) * reach, 0.02f * beamOn);
-        }
-
-        // Rim: a solid white disc with the cap on top, so it hugs it with no gap.
-        shapes.setColor(CAP_DARK.r, CAP_DARK.g, CAP_DARK.b, 0.20f);
-        shapes.circle(cx, cy, ICON_R + 4f, 32);
-        shapes.setColor(1f, 1f, 1f, 1f);
-        shapes.circle(cx, cy, ICON_R, 32);
-
-        policeCap(shapes, cx, cy, angle);
-
-        // The lamp is the small rounded protrusion: a short neck with a round joint at its root,
-        // one lens, one hot centre. Drawn after the rim so it simply overlaps it.
-        float nx = cx + c * (ICON_R - 5f);
-        float ny = cy + s * (ICON_R - 5f);
-        shapes.setColor(0.30f, 0.33f, 0.38f, 1f);
-        shapes.rectLine(nx, ny, lx, ly, 7f);
-        shapes.circle(nx, ny, 3.5f, 16);
-        shapes.setColor(0.64f, 0.67f, 0.72f, 1f);
-        shapes.circle(lx, ly, 6.2f, 20);
-        shapes.setColor(1f, 1f, 0.96f, 0.18f + 0.82f * beamOn);
-        shapes.circle(lx, ly, 3.8f, 16);
-    }
-
-    /** The beam: bright at the lens, fading out along its length, tapering to a soft end. */
-    private void beamToText(ShapeRenderer shapes, float lx, float ly, float angle, float on) {
-        float full = 120f;
-        float reach = full * on;
-        float half = 0.30f;
-        float nearAlpha = 0.45f * on;
-        float farAlpha = 0.02f * on;
-
-        float ex = lx + (float) Math.cos(angle) * reach;
-        float ey = ly + (float) Math.sin(angle) * reach;
-        float w = (float) Math.tan(half) * reach;
-
-        // main body: strong at the lens, gone at the tip
-        gradTri(shapes, lx, ly, nearAlpha,
-                ex + (float) Math.cos(angle) * 30f, ey + (float) Math.sin(angle) * 30f + w * 0.55f, farAlpha,
-                ex + (float) Math.cos(angle) * 30f, ey + (float) Math.sin(angle) * 30f - w * 0.55f, farAlpha);
-    }
-
-    /** Cap seen from above: crown, peak in front, badge on top. */
-    private void policeCap(ShapeRenderer shapes, float cx, float cy, float angle) {
-        final float r = ICON_R - 3f;          // the white disc behind it becomes a 3-wide rim
-
-        // peak: points the way the head is turned
-        float c = (float) Math.cos(angle);
-        float s = (float) Math.sin(angle);
-        shapes.setColor(0.34f, 0.52f, 0.64f, 1f);
-        shapes.rectLine(cx + c * 2f, cy + s * 2f, cx + c * (r * 0.95f), cy + s * (r * 0.95f), 10f);
-
-        shapes.setColor(CAP_BLUE);
-        shapes.circle(cx, cy + 1f, r, 32);
-        shapes.setColor(0.44f, 0.62f, 0.73f, 1f);
-        shapes.circle(cx, cy + 3f, r * 0.74f, 30);
-        shapes.setColor(CAP_BLUE);
-        shapes.circle(cx, cy + 1f, r * 0.56f, 28);
-
-        shapes.setColor(0.92f, 0.97f, 1f, 1f);
-        shapes.circle(cx, cy + 2f, 6f, 18);
-        shapes.setColor(0.30f, 0.47f, 0.58f, 1f);
-        shapes.circle(cx, cy + 2f, 3.3f, 14);
-    }
 
     /** Triangle with a different alpha at each vertex: the whole gradient without stair steps. */
-    private void gradTri(ShapeRenderer shapes, float x1, float y1, float a1,
-                         float x2, float y2, float a2, float x3, float y3, float a3) {
-        shapeNear.set(1f, 0.985f, 0.94f, a1);
-        shapeMid.set(1f, 0.985f, 0.94f, a2);
-        shapeFar.set(1f, 0.985f, 0.94f, a3);
-        shapes.triangle(x1, y1, x2, y2, x3, y3, shapeNear, shapeMid, shapeFar);
-    }
-
-    private final Color shapeNear = new Color();
-    private final Color shapeMid = new Color();
-    private final Color shapeFar = new Color();
 
     /**
-     * Ninja from above: hood, hair with a headband knotted at the side, scarf trailing behind, and
-     * two hands. Choosing the thief plays the gem going into the bag; leaving puts it back.
+     * Ninja from above, drawn with the same recipe as the match badge: scarf tails, white rim,
+     * dark hood, headband. Selection only grows the halo.
      */
-    private void lobbyThiefIcon(ShapeRenderer shapes, float cx, float cy, float selected) {
-        float sel = UiAnim.smooth(selected);
-        float bob = UiAnim.sway(lobbyClock, 2.1f) * 4f;
-        float wave = UiAnim.sway(lobbyClock, 1.6f) * 8f;
-
-        // scarf ribbons trailing behind
-        shapes.setColor(0.58f, 0.16f, 0.18f, 1f);
-        shapes.triangle(cx + 14f, cy + 10f, cx + 56f, cy + 26f + wave, cx + 54f, cy + 6f + wave);
-        shapes.setColor(0.44f, 0.11f, 0.13f, 1f);
-        shapes.triangle(cx + 14f, cy + 2f, cx + 52f, cy + 2f + wave, cx + 48f, cy - 12f + wave);
-
-        // hood: white rim, dark cloth
-        shapes.setColor(Color.WHITE);
-        shapes.circle(cx, cy, ICON_R, 32);
-        shapes.setColor(0.09f, 0.09f, 0.11f, 1f);
-        shapes.circle(cx, cy, ICON_R - 2.2f, 32);
-        shapes.setColor(0.17f, 0.17f, 0.21f, 1f);
-        shapes.circle(cx - 4f, cy + 6f, ICON_R * 0.48f, 26);
-
-        // hair across the face, and the headband tied at the side
-        shapes.setColor(0.06f, 0.06f, 0.08f, 1f);
-        shapes.rect(cx - 13f, cy + 1f, 26f, 2.6f);
-        shapes.rect(cx - 11f, cy - 4f, 22f, 2.0f);
-        shapes.setColor(0.72f, 0.18f, 0.20f, 1f);
-        shapes.rect(cx - 14f, cy + 8f, 28f, 3.2f);
-        shapes.circle(cx + 15f, cy + 9.5f, 4.0f, 14);
-        shapes.triangle(cx + 15f, cy + 9f, cx + 30f, cy + 15f + wave * 0.5f,
-                cx + 29f, cy + 5f + wave * 0.5f);
-
-        float hx = cx - 34f;
-        float hy = cy - 30f + bob * 0.5f;
-
-        // gem travels from the hands into the bag as the role is chosen
-        float t = UiAnim.clamp01((sel - 0.15f) / 0.65f);
-        float bagTop = hy + 16f;
-        float gx = UiAnim.lerp(hx, hx, t);
-        float gy = UiAnim.lerp(hy + 8f + bob, bagTop, t);
-
-        shapes.setColor(0.93f, 0.93f, 0.96f, 1f - t);
-        if (t < 0.99f) {
-            shapes.circle(hx - 8f, hy, 5.5f, 16);
-            shapes.circle(hx + 8f, hy, 5.5f, 16);
-        }
-
-        if (t > 0.01f) {
-            // a single hand gripping a round sack of loot, not a rucksack
-            float grow = UiAnim.clamp01(t * 1.3f);
-            shapes.setColor(0.93f, 0.93f, 0.96f, 1f);
-            shapes.circle(hx - 2f, hy + 2f, 5.5f, 16);
-            shapes.setColor(0.36f, 0.37f, 0.42f, 1f);
-            shapes.circle(hx, hy - 12f, 13f * grow, 22);
-            shapes.setColor(0.22f, 0.22f, 0.26f, 1f);
-            shapes.circle(hx - 4f, hy - 16f, 8f * grow, 18);
-            shapes.setColor(0.62f, 0.62f, 0.68f, 1f);
-            shapes.circle(hx, hy - 2f, 4.5f * grow, 14);
-        }
-
-        float gemAlpha = t < 0.85f ? 1f : 1f - (t - 0.85f) / 0.15f;
-        if (gemAlpha > 0.01f) {
-            float s2 = 10f;
-            shapes.setColor(0.50f, 0.86f, 1f, gemAlpha);
-            shapes.triangle(gx, gy + s2, gx - s2, gy, gx, gy - s2);
-            shapes.triangle(gx, gy + s2, gx + s2, gy, gx, gy - s2);
-            shapes.setColor(0.86f, 0.98f, 1f, gemAlpha * 0.85f);
-            shapes.triangle(gx, gy + s2 * 0.55f, gx - s2 * 0.45f, gy, gx, gy - s2 * 0.55f);
-            // highlight so it reads as a faceted stone rather than a flat diamond
-            shapes.setColor(1f, 1f, 1f, gemAlpha);
-            shapes.triangle(gx, gy + s2 * 0.72f, gx - s2 * 0.30f, gy + s2 * 0.10f,
-                    gx + s2 * 0.10f, gy + s2 * 0.05f);
-        }
-    }
 
     // ---- press feedback -------------------------------------------------------------------
 
@@ -1682,6 +1506,10 @@ public final class LightChaseApp extends ApplicationAdapter {
      */
     private void coverNow() {
         if (fadePhase != 0) return;
+        boolean countdown = page() == Page.COUNTDOWN || shownPage == Page.COUNTDOWN;
+        phaseIn = countdown ? 0.16f : 0.26f;
+        phaseHold = countdown ? 0.08f : 0.26f;
+        phaseOut = countdown ? 0.40f : 1.14f;
         fadePhase = 1;      // sink into the curtain first: the switch itself is a cut only in phase 2
         fadeT = 0f;
     }
@@ -1693,8 +1521,8 @@ public final class LightChaseApp extends ApplicationAdapter {
         // Coming back from a match: the role is not a property of the room any more than it is of
         // the player, so the lobby asks again, exactly like the first time.
         if (target == Page.LOBBY) {
-            selectedRole = null;
-            suppressRoomRole = true;
+            lobby.selectedRole = null;
+            lobby.suppressRoomRole = true;
         }
         String summary = quit.takeSummary();
         notice = summary == null ? "" : summary;
@@ -1707,7 +1535,7 @@ public final class LightChaseApp extends ApplicationAdapter {
      * press - up and back down - so a scene change can never cut a button off mid-animation.
      */
     private boolean washing() {
-        if (readyQueued || readyReturning) return true;
+        if (lobby.readyQueued || lobby.readyReturning) return true;
         for (int i = 0; i < washing.length; i++) {
             if (washing[i] || returning[i]) return true;
         }
@@ -1717,7 +1545,7 @@ public final class LightChaseApp extends ApplicationAdapter {
     private void updateTransition(float dt) {
         switch (fadePhase) {
             case 1:
-                fadeT += dt / COVER_IN;
+                fadeT += dt / phaseIn;
                 if (fadeT >= 1f) {
                     // Opaque now, so the swap is invisible - and the destination starts rendering
                     // behind the curtain while it holds, which is what lets its entrance settle.
@@ -1727,14 +1555,14 @@ public final class LightChaseApp extends ApplicationAdapter {
                 }
                 break;
             case 2:
-                fadeT += dt / 0.26f;
+                fadeT += dt / phaseHold;
                 if (fadeT >= 1f) {
                     fadePhase = 3;
                     fadeT = 0f;
                 }
                 break;
             case 3:
-                fadeT += dt / COVER_OUT;
+                fadeT += dt / phaseOut;
                 if (fadeT >= 1f) {
                     fadePhase = 0;
                     fadeT = 0f;
@@ -1758,7 +1586,31 @@ public final class LightChaseApp extends ApplicationAdapter {
     private void updateLobby(float dt) {
 
         updateTransition(dt);
-        readyReveal = UiAnim.approach(readyReveal, selectedRole == null ? 0f : 1f, dt, 4.5f);
+        editorFade = UiAnim.approach(editorFade, editingField >= 0 ? 1f : 0f, dt, 7f);
+        errorFade.step(dt, errorText);
+        // The two share one slot on screen: while an error is present the notice waits its lobby.turn.
+        noticeFade.step(dt, errorFade.shown().isEmpty() ? notice : "");
+        statusFade.step(dt, connectionState);
+        lobbyStatusFade.step(dt, lobbyStatusText());
+        if (view != null) {
+            marksFade.step(dt, Integer.toString(view.marks));
+            deliveredFade.step(dt, Integer.toString(view.deliveredCount));
+            exitsFade.step(dt, view.exitsOpen ? "OPEN" : "CLOSED");
+        }
+        detailFade.step(dt, connectionDetail);
+        permFade.step(dt, mode == Mode.LAN
+                ? "ACCESS_LOCAL_NETWORK  " + (permission == null ? "N/A" : permission.describe())
+                : "");
+        lobby.readyReveal = UiAnim.approach(lobby.readyReveal, lobby.selectedRole == null ? 0f : 1f, dt, 4.5f);
+        if (shownPage == Page.COUNTDOWN) {
+            int secs = Math.max(1, Math.min(3, room == null ? 3
+                    : (int) Math.ceil(room.countdownRemainingMs / 1000.0)));
+            countFade.step(dt, Integer.toString(secs));
+            // They fill in order and stay lit: 3 lights one, 2 lights two, 1 lights all three.
+            for (int i = 0; i < countDot.length; i++) {
+                countDot[i] = UiAnim.approach(countDot[i], (3 - i) >= secs ? 1f : 0f, dt, 6f);
+            }
+        }
         for (int i = 0; i < wash.length; i++) {
             if (washing[i]) {
                 wash[i] = Math.min(1f, wash[i] + dt / WASH_UP);
@@ -1774,11 +1626,20 @@ public final class LightChaseApp extends ApplicationAdapter {
                         case 2: {
                             FakeGateway.Scenario[] all = FakeGateway.Scenario.values();
                             scenario = all[(scenario.ordinal() + 1) % all.length];
+                            // A failure belongs to the scenario that produced it: switching away
+                            // must not leave a stale red line behind.
+                            errorText = "";
+                            notice = "";
                             break;
                         }
-                        case 3: mode = mode == Mode.OFFLINE ? Mode.LAN : Mode.OFFLINE; break;
+                        case 3:
+                            mode = mode == Mode.OFFLINE ? Mode.LAN : Mode.OFFLINE;
+                            errorText = "";
+                            notice = "";
+                            break;
                         case 7: applyEditor(); break;
                         case 8: closeEditor(); break;
+                        case 9: requestQuit(); break;
                         default: pendingEditor = i - 4; break;
                     }
                 }
@@ -1789,9 +1650,10 @@ public final class LightChaseApp extends ApplicationAdapter {
                     returning[i] = false;
                     // The editor opens only after the whole press has played out, so the player
                     // sees their tap acknowledged before a panel covers the page.
-                    if (pendingEditor == i - 4) {
+                    if (pendingEditor >= 0 && pendingEditor == i - 4) {
+                        int field = pendingEditor;
                         pendingEditor = -1;
-                        openEditor(i - 4);
+                        openEditor(field);
                     }
                 }
             }
@@ -1800,73 +1662,80 @@ public final class LightChaseApp extends ApplicationAdapter {
             pulseT += dt;
             if (pulseT > 0.50f) pulseId = -1;
         }
-        lobbyClock += dt;
+        lobby.lobbyClock += dt;
         // Touch only: there is no pointer to hover with on a phone, so the state machine is
         // driven entirely by what is selected.
         int hover = 0;
-        selectPolice = UiAnim.approach(selectPolice, selectedRole == Role.POLICE ? 1f : 0f, dt, 5.5f);
-        selectThief = UiAnim.approach(selectThief, selectedRole == Role.THIEF ? 1f : 0f, dt, 6f);
+        lobby.selectPolice = UiAnim.approach(lobby.selectPolice, lobby.selectedRole == Role.POLICE ? 1f : 0f, dt, 5.5f);
+        lobby.selectThief = UiAnim.approach(lobby.selectThief, lobby.selectedRole == Role.THIEF ? 1f : 0f, dt, 6f);
 
-        // Three beats, in both directions: turn the head first, then switch the lamp on. Lighting
+        // Three beats, in both directions: lobby.turn the head first, then switch the lamp on. Lighting
         // before the head has moved would shine the torch at whatever the cap happened to face.
-        if (selectedRole == Role.POLICE) {
+        if (lobby.selectedRole == Role.POLICE) {
             if (toPoliceT < 0f) toPoliceT = 0f;
             toPoliceT += dt;
             fromPoliceT = -1f;
-            turn = UiAnim.clamp01((toPoliceT - 0.08f) / 0.30f);
-            beamOn = toPoliceT > 0.40f
-                    ? UiAnim.approach(beamOn, 1f, dt, 3.4f)
-                    : UiAnim.approach(beamOn, 0f, dt, 18f);
+            lobby.turn = UiAnim.clamp01((toPoliceT - 0.08f) / 0.30f);
+            lobby.beamOn = toPoliceT > 0.40f
+                    ? UiAnim.approach(lobby.beamOn, 1f, dt, 3.4f)
+                    : UiAnim.approach(lobby.beamOn, 0f, dt, 18f);
         } else {
             toPoliceT = -1f;
             if (fromPoliceT < 0f) fromPoliceT = 0f;
             fromPoliceT += dt;
-            beamOn = UiAnim.approach(beamOn, 0f, dt, 16f);
-            turn = 1f - UiAnim.clamp01((fromPoliceT - 0.04f) / 0.28f);
+            lobby.beamOn = UiAnim.approach(lobby.beamOn, 0f, dt, 16f);
+            lobby.turn = 1f - UiAnim.clamp01((fromPoliceT - 0.04f) / 0.28f);
         }
 
 
+        boolean actionHeld = touch.holdPointer() != -1;
+        actionButton.update(dt, view, actionHeld, data.rules.interactTicks,
+                data.rules.tickRate);
+
+        scenarioFade = UiAnim.approach(scenarioFade, mode == Mode.LAN ? 0f : 1f, dt, 6f);
+        countdownReveal = UiAnim.approach(countdownReveal,
+                shownPage == Page.COUNTDOWN ? 1f : 0f, dt, 3.2f);
+        if (lobby.roleNoticeT > 0f) lobby.roleNoticeT = Math.max(0f, lobby.roleNoticeT - dt);
+
         // LEAVE ROOM's rule: 0.14s up, 0.10s hold, 0.26s back down. One shot, no loop.
-        if (leaveT >= 0f) {
-            leaveT += dt;
-            if (leaveT < 0.14f) {
-                leaveHot = leaveT / 0.14f;
-            } else if (leaveT < 0.30f) {
-                leaveHot = 1f;
-            } else if (leaveT < 0.62f) {
-                leaveHot = 1f - (leaveT - 0.30f) / 0.32f;
+        if (lobby.leaveT >= 0f) {
+            lobby.leaveT += dt;
+            if (lobby.leaveT < 0.14f) {
+                lobby.leaveHot = lobby.leaveT / 0.14f;
+            } else if (lobby.leaveT < 0.30f) {
+                lobby.leaveHot = 1f;
+            } else if (lobby.leaveT < 0.62f) {
+                lobby.leaveHot = 1f - (lobby.leaveT - 0.30f) / 0.32f;
             } else {
-                leaveHot = 0f;
-                leaveT = -1f;
+                lobby.leaveHot = 0f;
+                lobby.leaveT = -1f;
             }
-            if (leaveQueued && leaveT >= 0.34f) {
-                leaveQueued = false;
+            if (lobby.leaveQueued && lobby.leaveT >= 0.34f) {
+                lobby.leaveQueued = false;
                 touch.clear();
                 gateway.leaveRoom();
             }
         } else {
-            leaveHot = 0f;
+            lobby.leaveHot = 0f;
         }
 
-        for (int i = 0; i < chipFade.length; i++) {
-            chipFade[i] = Math.min(1f, chipFade[i] + dt * 3.4f);
-        }
+        lobbyView.step(dt);
 
-        if (readyQueued) {
-            readyPress = Math.min(1f, readyPress + dt / WASH_UP);
-            if (readyPress >= 1f) {
-                readyQueued = false;
-                readyReturning = true;
+        if (lobby.readyQueued) {
+            lobby.readyPress = Math.min(1f, lobby.readyPress + dt / WASH_UP);
+            if (lobby.readyPress >= 1f) {
+                lobby.readyQueued = false;
+                lobby.readyReturning = true;
                 if (!pending("SET_READY")) gateway.setReady(!isSelfReady());
             }
-        } else if (readyReturning) {
-            readyPress = Math.max(0f, readyPress - dt / WASH_DOWN);
-            if (readyPress <= 0f) {
-                readyPress = 0f;
-                readyReturning = false;
+        } else if (lobby.readyReturning) {
+            lobby.readyPress = Math.max(0f, lobby.readyPress - dt / WASH_DOWN);
+            if (lobby.readyPress <= 0f) {
+                lobby.readyPress = 0f;
+                lobby.readyReturning = false;
             }
         } else {
-            readyPress = UiAnim.approach(readyPress, 0f, dt, 6f);
+            lobby.readyPress = UiAnim.approach(lobby.readyPress, 0f, dt, 6f);
         }
     }
     private void recordPress(String target) {
@@ -1891,159 +1760,20 @@ public final class LightChaseApp extends ApplicationAdapter {
         return role + "  /  " + ready + connection;
     }
 
-    private void drawCountdownText() {
-        float w = ui.getWorldWidth();
-        float m = UiTheme.MARGIN;
-        float bs = bottomShift();
-        int seconds = room == null ? 0 : (int) Math.ceil(room.countdownRemainingMs / 1000.0);
-
-        UiDraw.text(batch, fonts.display, "LIGHT \u00b7 CHASE", m, 64f, UiTheme.TEXT, 1.5f);
-        UiDraw.text(batch, fonts.monoBig, "STARTING", m + 2f, PAGE_KICKER, UiTheme.ACCENT, 2.5f);
-
-        String roomLabel = "ROOM  " + (room == null ? "-" : room.roomId);
-        UiDraw.text(batch, fonts.mono, roomLabel,
-                w - m - UiDraw.width(fonts.mono, roomLabel, 1f),
-                64f + (UiDraw.capHeight(fonts.display) - UiDraw.capHeight(fonts.mono)) / 2f,
-                LOBBY_GREY, 1f);
-
-        // The count itself, big enough to read from across the room, under the dots.
-        String count = Integer.toString(Math.max(0, seconds));
-        float cw = UiDraw.width(fonts.huge, count, 4f);
-        UiDraw.text(batch, fonts.huge, count, w / 2f - cw / 2f, 392f, UiTheme.TEXT, 4f);
-
-        String caption = "INPUT IS IGNORED UNTIL THE COUNTDOWN ENDS";
-        UiDraw.text(batch, fonts.mono, caption,
-                w / 2f - UiDraw.width(fonts.mono, caption, 1.5f) / 2f, 546f, LOBBY_GREY, 1.5f);
-    }
-
-    private void drawMatchText() {
-        float w = ui.getWorldWidth();
-        float m = UiTheme.MARGIN;
-        String time = view == null ? "--" : String.format(Locale.ROOT, "%.1f", view.remainingTicks / ticksPerSecond());
-        String marks = view == null ? "-" : Integer.toString(view.marks);
-        String delivered = view == null ? "-" : Integer.toString(view.deliveredCount);
-        String exits = view == null ? "-" : (view.exitsOpen ? "OPEN" : "CLOSED");
-
-        // Header: four facts on the same baseline grid.
-        float col = (w - 2 * m - 3 * GRID_GAP) / 4f;
-        kv(m, 30f, "TIME", time, UiTheme.TEXT);
-        kv(m + col + GRID_GAP, 30f, "MARKS", marks + "/" + data.rules.maxMarks, UiTheme.TEXT);
-        kv(m + 2f * (col + GRID_GAP), 30f, "DELIVERED",
-                delivered + "/" + data.map.materials.size(), UiTheme.TEXT);
-        kv(m + 3f * (col + GRID_GAP), 30f, "EXITS", exits,
-                UiTheme.TEXT);
 
 
-        if (!ConnectionStates.CONNECTED.equals(connectionState)) {
-            UiDraw.text(batch, fonts.mono,
-                    "NET  " + connectionState + (connectionDetail.isEmpty() ? "" : "  " + connectionDetail),
-                    m, 108f, UiTheme.ACCENT, 1f);
-        }
+    /** One scale for every CTA word, measured against the longest one, so text never shifts. */
 
-        ThiefPrivate thief = view == null ? null : view.thief;
-        float infoTop = 118f;
-        if (thief != null) {
-            String carried = thief.carriedMaterialId == null ? "none" : thief.carriedMaterialId;
-            String protection = thief.protection + (thief.protectionRemainingTicks > 0
-                    ? String.format(Locale.ROOT, " %.1fs", thief.protectionRemainingTicks / ticksPerSecond()) : "");
-            line("CARRIED", carried, m, infoTop, UiTheme.TEXT);
-            line("PROTECTION", protection, m + 300f, infoTop, UiTheme.TEXT);
+    private static float clamp01(float v) { return v < 0f ? 0f : (v > 1f ? 1f : v); }
 
+    /** One faded caption under the action button. */
 
-            InteractionTarget chosen = thief.interaction.active != null
-                    ? thief.interaction.active : thief.interaction.candidate;
-            String target = chosen == null ? "none" : chosen.type + " " + chosen.targetId;
-            line("TARGET", target, m, infoTop + 44f, UiTheme.TEXT);
-            line("PROGRESS", Math.round(interactionProgress() * 100f) + "%",
-                    m + 300f, infoTop + 44f, UiTheme.TEXT);
-            line("BLOCKED", thief.interaction.blockedReason, m + 470f, infoTop + 44f, LOBBY_GREY);
+    /** One compact row under the minimap: grey label, white value, same baseline. */
 
-            StringBuilder taken = new StringBuilder();
-            for (OriginStatus status : view.originStatus) {
-                if (status.everPicked) {
-                    if (taken.length() > 0) taken.append("  ");
-                    taken.append(status.materialId);
-                }
-            }
-            line("ORIGINS TAKEN", taken.length() == 0 ? "none" : taken.toString(), m, infoTop + 88f,
-                    LOBBY_GREY);
-        }
-
-        // Controls: the ring shapes are in the shape pass, these are just their captions.
-        centered(batch, fonts.mono, "MOVE", TouchController.JOY_X,
-                UiTheme.H - TouchController.JOY_Y + TouchController.JOY_R + 14f, LOBBY_GREY, 1.5f);
-        if (selectedRole == Role.THIEF) {
-            centered(batch, fonts.mono, "HOLD", TouchController.HOLD_X,
-                    UiTheme.H - TouchController.HOLD_Y + TouchController.HOLD_R + 14f, LOBBY_GREY, 1.5f);
-            centered(batch, fonts.mono, "DROP", TouchController.DROP_X,
-                    UiTheme.H - TouchController.DROP_Y + TouchController.DROP_R + 14f, LOBBY_GREY, 1.5f);
-        }
-        if (view != null) {
-            UiDraw.text(batch, fonts.mono,
-                    String.format(Locale.ROOT, "POS %.2f, %.2f", view.self.x, view.self.y),
-                    w / 2f - 60f, UiTheme.H - 40f, LOBBY_GREY, 1f);
-        }
-
-        // Quit: the same text-only action as the lobby's secondary button.
-        float quitTop = UiTheme.H - QUIT_Y - QUIT_H + (QUIT_H - UiDraw.capHeight(fonts.mono)) / 2f;
-        String quitLabel = quit.active() ? "LEAVING..." : "QUIT MATCH";
-        float quitW = UiDraw.width(fonts.mono, quitLabel, 1.5f);
-        UiDraw.text(batch, fonts.mono, quitLabel, QUIT_X + (QUIT_W - quitW) / 2f, quitTop,
-                quit.active() ? UiTheme.ACCENT : LOBBY_GREY, 1.5f);
-    }
+    /** White rounded plate: a grey caption over a dark value, both centred. */
 
     /** One grey label followed by a white value on the same line; the gap follows the label. */
-    private void line(String label, String value, float x, float top, Color valueColor) {
-        UiDraw.text(batch, fonts.mono, label, x, top, LOBBY_GREY, 1.2f);
-        UiDraw.text(batch, fonts.mono, value, x + UiDraw.width(fonts.mono, label, 1.2f) + 22f, top,
-                valueColor, 0.6f);
-    }
 
-    private void drawResultText() {
-        float w = ui.getWorldWidth();
-        float m = UiTheme.MARGIN;
-        float bs = bottomShift();
-
-        UiDraw.text(batch, fonts.display, "LIGHT \u00b7 CHASE", m, 64f, UiTheme.TEXT, 1.5f);
-        UiDraw.text(batch, fonts.monoBig, "RESULT", m + 2f, PAGE_KICKER, UiTheme.ACCENT, 2.5f);
-
-        if (result == null) {
-            UiDraw.text(batch, fonts.mono, "WAITING FOR THE RESULT MESSAGE", m, 220f, LOBBY_GREY, 1.5f);
-            return;
-        }
-
-        boolean noWinner = result.winner == null;
-        boolean iWon = !noWinner && result.winner == selectedRole;
-
-        // The outcome, at masthead size: this is the one line that must be read first.
-        String headline = noWinner ? "DRAW" : result.winner.name() + " WINS";
-        UiDraw.text(batch, fonts.display, headline, m, 210f,
-                noWinner ? LOBBY_GREY : UiTheme.TEXT, 1.5f);
-        UiDraw.text(batch, fonts.monoBig, noWinner ? "NO DECISION" : (iWon ? "YOU WIN" : "YOU LOSE"),
-                m + 2f, 262f, noWinner ? LOBBY_GREY : UiTheme.ACCENT, 2.5f);
-
-        // Who was who, on the chip grid.
-        float colW = (w - 2 * m - GRID_GAP) / 2f;
-        chip(m, 300f, w - 2 * m, BOX_H, "WINNER",
-                result.winner == null ? "NONE" : result.winner.name());
-
-        // Facts, evenly spaced.
-        float col4 = (w - 2 * m - 3 * GRID_GAP) / 4f;
-        kv(m, 402f, "REASON", String.valueOf(result.reason), UiTheme.TEXT);
-        kv(m + col4 + GRID_GAP, 402f, "MARKS", result.marks + "/" + data.rules.maxMarks, UiTheme.TEXT);
-        kv(m + 2f * (col4 + GRID_GAP), 402f, "DELIVERED",
-                result.deliveredCount + "/" + data.map.materials.size(), UiTheme.TEXT);
-        kv(m + 3f * (col4 + GRID_GAP), 402f, "ELAPSED",
-                String.format(Locale.ROOT, "%.1fs", result.elapsedTicks / ticksPerSecond()),
-                UiTheme.TEXT);
-
-        primaryButton(m, RESULT_ACTION_TOP + bs, 300f, CTA_H, "BACK TO LOBBY",
-                !pending("RETURN_LOBBY"), washOf(1));
-
-        UiDraw.text(batch, fonts.mono,
-                "RESULT " + result.resultId + "   MATCH " + result.matchId,
-                m, 652f + bs, LOBBY_GREY, 1f);
-    }
 
     // ---------------------------------------------------------------- helpers
 

@@ -91,7 +91,7 @@ public class TouchControllerTest {
         TouchController c = new TouchController();
         c.down(1, CX + 60, CY, true);
         c.down(2, HX, HY, true);
-        c.down(3, TouchController.DROP_X, TouchController.DROP_Y, true);
+        c.down(3, HX, HY, true, true);      // same button, carrying: drop pulse
         c.clear();
         assertFalse(c.hasPointers());
         assertEquals(-1, c.joystickPointer());
@@ -106,7 +106,7 @@ public class TouchControllerTest {
     @Test public void policeCannotUseThiefControls() {
         TouchController c = new TouchController();
         assertFalse(c.down(1, HX, HY, false));
-        assertFalse(c.down(2, TouchController.DROP_X, TouchController.DROP_Y, false));
+        assertFalse(c.down(2, HX, HY, false, true));
         InputFrame f = c.frame();
         assertFalse(f.interactHeld);
         assertFalse(f.dropPressed);
@@ -115,7 +115,10 @@ public class TouchControllerTest {
 
     @Test public void dropIsOneShot() {
         TouchController c = new TouchController();
-        assertTrue(c.down(1, TouchController.DROP_X, TouchController.DROP_Y, true));
+        // The button is a hold; dropping is a separate one-shot that a quick tap queues.
+        assertTrue(c.down(1, c.actionX(), c.actionY(), true, true));
+        assertFalse("pressing alone must not drop", c.frame().dropPressed);
+        c.fireDrop();
         assertTrue(c.frame().dropPressed);
         assertFalse("the pulse must not repeat on the next frame", c.frame().dropPressed);
     }

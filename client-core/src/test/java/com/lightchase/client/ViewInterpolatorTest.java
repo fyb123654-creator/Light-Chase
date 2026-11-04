@@ -23,6 +23,34 @@ public class ViewInterpolatorTest {
                         Collections.emptyList(), new InteractionView(null, null, 0, false, "NO_TARGET")));
     }
 
+    private static PlayerView viewFacing(String matchId, long tick, double headingRad) {
+        return new PlayerView(matchId, tick, 0, 0, Role.POLICE, 5400, 0, 0, false,
+                new ActorPose("p1", 10, 5, headingRad), null,
+                Collections.singletonList(new OriginStatus("M1", false)),
+                new ThiefPrivate(null, Protection.NORMAL, 0, Collections.emptyList(),
+                        Collections.emptyList(), new InteractionView(null, null, 0, false, "NO_TARGET")));
+    }
+
+    @Test public void headingIsInterpolatedAlongTheShortArc() {
+        ViewInterpolator i = new ViewInterpolator(100);
+        i.accept(viewFacing("m1", 1, Math.toRadians(170)), 1000);
+        i.accept(viewFacing("m1", 2, Math.toRadians(-170)), 1100);
+
+        i.sample(1100);
+        assertEquals("still on the previous heading at arrival", 170,
+                Math.toDegrees(i.selfHeading()), 1e-6);
+
+        i.sample(1150);
+        assertEquals("crosses 180 the short way, not 340 the long way", 180,
+                Math.abs(Math.toDegrees(i.selfHeading())), 1e-6);
+
+        i.sample(1200);
+        // 170 + 20 lands on 190, which is the same direction as -170.
+        double deg = Math.toDegrees(i.selfHeading());
+        while (deg > 180) deg -= 360;
+        assertEquals(-170, deg, 1e-6);
+    }
+
     @Test public void carryingFollowsTheNewestSnapshotAndIsNotInterpolated() {
         ViewInterpolator i = new ViewInterpolator(100);
         i.accept(view("m1", 1, 10, 5, 20.0, 9.0, false), 1000);

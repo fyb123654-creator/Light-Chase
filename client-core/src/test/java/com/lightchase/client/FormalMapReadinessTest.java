@@ -44,10 +44,12 @@ public class FormalMapReadinessTest {
         assertEquals(24, formal.map.width);
         assertEquals(18, formal.map.height);
 
-        // The minimap is drawn at MM_SCALE pixels per tile, so identical dimensions mean an
+        // The minimap fits itself to a fixed corner box, so identical dimensions mean an
         // identical box - no layout work on switching day.
-        assertEquals(WorldRenderer.MM_SCALE * test.map.width, WorldRenderer.MM_SCALE * formal.map.width, 1e-6);
-        assertEquals(WorldRenderer.MM_SCALE * test.map.height, WorldRenderer.MM_SCALE * formal.map.height, 1e-6);
+        float testScale = WorldRenderer.minimapScale(test.map.width, test.map.height);
+        float formalScale = WorldRenderer.minimapScale(formal.map.width, formal.map.height);
+        assertEquals(test.map.width * testScale, formal.map.width * formalScale, 1e-6);
+        assertEquals(test.map.height * testScale, formal.map.height * formalScale, 1e-6);
 
         assertEquals("the same three materials", 3, formal.map.materials.size());
         assertEquals("the same three deliveries", 3, formal.map.deliveries.size());

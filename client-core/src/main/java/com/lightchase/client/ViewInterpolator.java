@@ -24,6 +24,7 @@ public final class ViewInterpolator {
 
     private double selfX;
     private double selfY;
+    private double selfHeading;
     private double opponentX;
     private double opponentY;
     private boolean opponentVisible;
@@ -52,6 +53,7 @@ public final class ViewInterpolator {
         opponentVisible = false;
         opponentCarrying = false;
         selfX = selfY = opponentX = opponentY = 0;
+        selfHeading = 0;
     }
 
     /** Compute the positions to draw at {@code nowMs}. Call once per frame before rendering. */
@@ -71,6 +73,12 @@ public final class ViewInterpolator {
         double py = previous == null ? current.self.y : previous.self.y;
         selfX = px + (current.self.x - px) * alpha;
         selfY = py + (current.self.y - py) * alpha;
+        // Heading is interpolated along the short arc, otherwise the beam snaps between snapshots.
+        double ph = previous == null ? current.self.headingRad : previous.self.headingRad;
+        double dh = current.self.headingRad - ph;
+        while (dh > Math.PI) dh -= Math.PI * 2.0;
+        while (dh < -Math.PI) dh += Math.PI * 2.0;
+        selfHeading = ph + dh * alpha;
 
         if (current.opponent != null) {
             opponentVisible = true;
@@ -89,6 +97,7 @@ public final class ViewInterpolator {
     public boolean opponentCarrying() { return opponentCarrying; }
     public double selfX() { return selfX; }
     public double selfY() { return selfY; }
+    public double selfHeading() { return selfHeading; }
     public double opponentX() { return opponentX; }
     public double opponentY() { return opponentY; }
 }

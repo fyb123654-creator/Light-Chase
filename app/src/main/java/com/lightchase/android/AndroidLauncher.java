@@ -1,8 +1,13 @@
 package com.lightchase.android;
 
+import android.content.Context;
 import android.content.pm.PackageManager;
 import android.os.Build;
 import android.os.Bundle;
+import android.view.View;
+import android.view.ViewGroup;
+import android.view.inputmethod.InputMethodManager;
+import android.widget.EditText;
 import com.badlogic.gdx.backends.android.AndroidApplication;
 import com.badlogic.gdx.backends.android.AndroidApplicationConfiguration;
 import com.lightchase.client.FakeGateway;
@@ -41,8 +46,49 @@ public final class AndroidLauncher extends AndroidApplication {
         }
     }
 
+    /**
+     * Hides the keyboard and takes the focus away from libGDX's hidden EditText, so a later tap
+     * cannot bring the keyboard back on its own.
+     */
+    private void hideKeyboard() {
+        // Called from the GL thread; touching views must happen on the UI thread.
+        runOnUiThread(() -> {
+            View root = getWindow().getDecorView();
+            clearEditableFocus(root);
+            InputMethodManager imm =
+                    (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
+            if (imm != null) {
+                imm.hideSoftInputFromWindow(root.getWindowToken(), 0);
+                // Hiding alone leaves the IME served by libGDX's hidden EditText, and the next
+                // touch makes Android show it again. Restarting the input session and moving the
+                // focus to the GL surface drops that target for good.
+                imm.restartInput(root);
+            }
+            root.clearFocus();
+            View content = findViewById(android.R.id.content);
+            if (content instanceof ViewGroup) {
+                ViewGroup group = (ViewGroup) content;
+                if (group.getChildCount() > 0) {
+                    View surface = group.getChildAt(0);
+                    surface.setFocusableInTouchMode(true);
+                    surface.requestFocus();
+                }
+            }
+        });
+    }
+
+    private static void clearEditableFocus(View view) {
+        if (view instanceof EditText) {
+            view.clearFocus();
+        } else if (view instanceof ViewGroup) {
+            ViewGroup group = (ViewGroup) view;
+            for (int i = 0; i < group.getChildCount(); i++) clearEditableFocus(group.getChildAt(i));
+        }
+    }
+
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
+        LightChaseApp.hideKeyboardHook = this::hideKeyboard;
         AndroidApplicationConfiguration config = new AndroidApplicationConfiguration();
         config.useAccelerometer = false;
         config.useCompass = false;

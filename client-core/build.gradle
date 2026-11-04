@@ -2,6 +2,8 @@ plugins { id 'java-library' }
 dependencies {
     api project(':contracts')
     implementation project(':game-data')
+    // Offline mode runs A's own rule engine instead of a second implementation of it.
+    implementation project(':game-core')
     api 'com.badlogicgames.gdx:gdx:1.14.2'
     // The blackout layout needs five font sizes; the stock bitmap font has one.
     api 'com.badlogicgames.gdx:gdx-freetype:1.14.2'

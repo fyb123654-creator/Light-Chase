@@ -3,6 +3,7 @@ package com.lightchase.client;
 import com.lightchase.contracts.*;
 import com.lightchase.contracts.geometry.WorldGeometry;
 import com.lightchase.data.DataFiles;
+import com.lightchase.game.V1EngineFactory;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -24,50 +25,75 @@ public final class FakeGateway implements ClientGateway {
      */
     public enum Scenario { NORMAL, CONNECT_FAIL, ROOM_FULL, ROLE_TAKEN, INVALID_PHASE, POLICE_WIN, THIEF_WIN }
 
-    private static final double DEMO_MATCH_SECONDS = 12.0;
-    private static final double POLICE_CAPTURE_AT = 10.0;
-    private static final double THIEF_ESCAPE_AT = 11.0;
+    /** Length of the offline demo match. Long enough to test the HUD by hand. */
+    static final double DEMO_MATCH_SECONDS = 12.0;
     private static final double SPEED = 3.0;
+    /** Thief speed multiplier; the app raises it while the map is being tested by hand. */
+    private double thiefSpeedScale = 1.0;
     private static final String SESSION_ID = "offline-session";
     private static final String SELF_ID = "demo-self";
     private static final String OPPONENT_ID = "demo-opponent";
-    private static final String MATCH_ID = "demo-match";
+    private static final String MATCH_PREFIX = "demo-match-";
+    private String matchId = MATCH_PREFIX + "1";
+    private int matchSeq = 1;
     private static final String ROOM_ID = "DEMO";
 
-    private DataFiles data;
+    DataFiles data;
+    /** A's rule engine; offline matches run on it instead of a second implementation. */
+    private MatchEngine engine;
+    /** Seconds not yet handed to the engine, so it is stepped at the rule tick rate. */
+    private double simAcc;
+    private long inputSeq;
+    /** Monotonic id for the drop pulse; the engine drops when it sees a new id. */
+    private long dropSeq;
     private GatewayListener listener;
     private Scenario scenario = Scenario.NORMAL;
 
     private Role selfRole = Role.THIEF;
     private boolean connected;
     private boolean ready;
+    /** The fixture opponent readies a beat later, so the lobby's CANCEL state is reachable. */
+    private boolean opponentReady;
+    private float opponentReadyInSec;
+    /** Seconds the demo opponent waits before readying. 0 keeps the old immediate behaviour. */
+    private float opponentReadyDelay = 0f;
     private RoomPhase phase = RoomPhase.LOBBY;
     private int countdownMs;
-    private double matchSeconds;
+    double matchSeconds;
     private double headingRad;
     private InputFrame input = InputFrame.ZERO;
 
     private double x;
     private double y;
     private double opponentX;
+    private boolean opponentVisibleState;
     private double opponentY;
     private long tick;
     private long revision;
     private long requestSeq;
-    private int marks;
-    private int delivered;
+    int marks;
+    int delivered;
     private MatchResult lastResult;
 
     // Scripted match state (see Scenario.POLICE_WIN / THIEF_WIN). This is a fixture script, not a
     // rule engine: it only decides which UI states to emit at which second of the demo.
-    private String carrying;
-    private Protection protection = Protection.NORMAL;
-    private int protectionTicks;
-    private InteractionTarget interactionTarget;
-    private int interactionProgress;
-    private boolean exitsOpen;
+    String carrying;
+    Protection protection = Protection.NORMAL;
+    int protectionTicks;
+    InteractionTarget interactionTarget;
+    int interactionProgress;
+    private boolean interactionLocked;
+    /** Materials the thief put down again: id -> where it lies now. */
+    private final java.util.Map<String, double[]> dropped = new java.util.HashMap<>();
+    final java.util.Set<String> deliveredIds = new java.util.HashSet<>();
+    private int markProgressTicks;
+    boolean exitsOpen;
 
     public void configure(DataFiles data) { this.data = data; }
+
+    public void useOpponentReadyDelay(float seconds) { opponentReadyDelay = Math.max(0f, seconds); }
+
+    public void useThiefSpeedScale(double scale) { thiefSpeedScale = Math.max(1.0, scale); }
 
     public void useScenario(Scenario value) { scenario = value; }
     public Scenario scenario() { return scenario; }
@@ -126,11 +152,19 @@ public final class FakeGateway implements ClientGateway {
             if (phase != RoomPhase.LOBBY) { fail(id, "SET_READY", "INVALID_PHASE"); return; }
             if (scenario == Scenario.INVALID_PHASE) { fail(id, "SET_READY", "INVALID_PHASE"); return; }
             ready = true;
-            phase = RoomPhase.COUNTDOWN;
-            countdownMs = countdownTotalMs();
+            if (opponentReadyDelay <= 0f) {
+                opponentReady = true;
+                phase = RoomPhase.COUNTDOWN;
+                countdownMs = countdownTotalMs();
+            } else {
+                opponentReady = false;
+                opponentReadyInSec = opponentReadyDelay;
+            }
+            emitRoom();
         } else {
             // Cancelling readiness must also cancel a running countdown.
             ready = false;
+            opponentReadyInSec = 0f;
             cancelCountdown();
         }
         emitRoom();
@@ -198,6 +232,31 @@ public final class FakeGateway implements ClientGateway {
         if (listener == null || !connected) return;
         double elapsed = Math.max(0, seconds);
 
+        // The fixture opponent readies two seconds after the player does, which keeps the lobby's
+        // "READY -> CANCEL" state reachable instead of jumping straight into the countdown.
+        if (phase == RoomPhase.LOBBY && ready && !opponentReady && opponentReadyInSec > 0f) {
+            opponentReadyInSec -= (float) elapsed;
+            if (opponentReadyInSec > 0f) return;
+            opponentReady = true;
+            phase = RoomPhase.COUNTDOWN;
+            countdownMs = countdownTotalMs();
+            emitRoom();
+            return;
+        }
+
+        if (phase == RoomPhase.LOBBY && ready && !opponentReady && opponentReadyInSec > 0f) {
+            opponentReadyInSec -= (float) elapsed;
+            if (opponentReadyInSec <= 0f) {
+                opponentReady = true;
+                emitRoom();
+                if (ready) {
+                    phase = RoomPhase.COUNTDOWN;
+                    countdownMs = countdownTotalMs();
+                    emitRoom();
+                }
+            }
+            return;
+        }
         if (phase == RoomPhase.COUNTDOWN) {
             countdownMs -= (int) Math.round(elapsed * 1000.0);
             if (countdownMs <= 0) startMatch();
@@ -208,24 +267,53 @@ public final class FakeGateway implements ClientGateway {
 
         double dt = Math.min(elapsed, 0.1);
         matchSeconds += dt;
-        tick = Math.round(matchSeconds * data.rules.tickRate);
 
-        double length = Math.max(1.0, Math.hypot(input.moveX, input.moveY));
-        x = clamp(x + input.moveX / length * SPEED * dt, 1.5, data.map.width - 1.5);
-        y = clamp(y + input.moveY / length * SPEED * dt, 1.5, data.map.height - 1.5);
-
-        double orbit = matchSeconds * 0.9;
-        opponentX = data.map.width / 2.0 + Math.cos(orbit) * 3.0;
-        opponentY = data.map.height / 2.0 + Math.sin(orbit) * 3.0;
-
-        if (scenario == Scenario.POLICE_WIN) {
-            if (applyPoliceWinScript()) return;
-        } else if (scenario == Scenario.THIEF_WIN) {
-            if (applyThiefWinScript()) return;
+        if (scenario != Scenario.NORMAL) {
+            // The scripted timelines are a story board, not rules: they still drive the fields.
+            tick = Math.round(matchSeconds * data.rules.tickRate);
+            double orbit = matchSeconds * 0.9;
+            opponentX = data.map.width / 2.0 + Math.cos(orbit) * 3.0;
+            opponentY = data.map.height / 2.0 + Math.sin(orbit) * 3.0;
+            if (scenario == Scenario.POLICE_WIN) {
+                if (OfflineScript.policeWin(this)) return;
+            } else if (OfflineScript.thiefWin(this)) return;
+            emitView();
+            return;
         }
 
+        // Normal play: A's engine owns every rule. We feed it the local command plus a stationary
+        // opponent and copy the authoritative view back into the fields the fixture projects from.
+        double tickLen = 1.0 / data.rules.tickRate;
+        simAcc += dt;
+        while (simAcc >= tickLen) {
+            simAcc -= tickLen;
+            inputSeq++;
+            List<PlayerCommand> commands = new ArrayList<>(2);
+            Long dropId = null;
+            if (input.dropPressed) {
+                dropId = ++dropSeq;
+                // Consume the pulse: one tap is one drop, not one per tick it stays latched.
+                input = new InputFrame(input.moveX, input.moveY, input.interactHeld, false);
+            }
+            commands.add(new PlayerCommand(selfId(), inputSeq, input.moveX, input.moveY,
+                    input.interactHeld, dropId));
+            commands.add(new PlayerCommand(opponentId(), inputSeq, 0, 0, false, null));
+            StepResult step = engine.step(new StepInput(inputSeq, commands,
+                    new ArrayList<>()));
+            if (step.ended && step.result != null) {
+                adoptFromEngine();
+                lastResult = step.result;
+                phase = RoomPhase.FINISHED;
+                ready = false;
+                input = InputFrame.ZERO;
+                emitRoom();
+                listener.onResult(lastResult);
+                return;
+            }
+        }
+        adoptFromEngine();
         emitView();
-        if (scenario == Scenario.NORMAL && matchSeconds >= DEMO_MATCH_SECONDS) finish(ResultReason.TIMEOUT);
+        if (matchSeconds >= DEMO_MATCH_SECONDS) finish(ResultReason.TIMEOUT);
     }
 
     /**
@@ -235,32 +323,8 @@ public final class FakeGateway implements ClientGateway {
      *
      * @return true when the match has finished and the caller must stop.
      */
-    private boolean applyPoliceWinScript() {
-        double t = matchSeconds;
-        if (t >= POLICE_CAPTURE_AT) {
-            marks = 3;
-            finish(ResultReason.CAPTURED);
-            return true;
-        }
-        marks = t >= 6.0 ? 2 : t >= 2.0 ? 1 : 0;
-        double since = t - (marks == 2 ? 6.0 : marks == 1 ? 2.0 : 0.0);
-        protection = Protection.NORMAL;
-        protectionTicks = 0;
-        if (marks > 0) {
-            double invisible = data.rules.invisibleTicks / (double) data.rules.tickRate;
-            double immune = data.rules.immuneTicks / (double) data.rules.tickRate;
-            if (since < invisible) {
-                protection = Protection.INVISIBLE;
-                protectionTicks = (int) Math.round((invisible - since) * data.rules.tickRate);
-            } else if (since < invisible + immune) {
-                protection = Protection.IMMUNE;
-                protectionTicks = (int) Math.round((invisible + immune - since) * data.rules.tickRate);
-            }
-        }
-        interactionTarget = null;
-        interactionProgress = 0;
-        return false;
-    }
+
+    /** The scripted path delivers the map's materials in order; keep the id set in step. */
 
     /**
      * Fixture script for the thief victory path: pick up and deliver three materials (each with a
@@ -268,52 +332,10 @@ public final class FakeGateway implements ClientGateway {
      *
      * @return true when the match has finished and the caller must stop.
      */
-    private boolean applyThiefWinScript() {
-        double t = matchSeconds;
-        if (t >= THIEF_ESCAPE_AT) {
-            finish(ResultReason.ESCAPED);
-            return true;
-        }
-        delivered = t >= 9.0 ? 3 : t >= 7.0 ? 2 : t >= 4.0 ? 1 : 0;
-        exitsOpen = delivered >= 3;
-        carrying = null;
-        interactionTarget = null;
-        interactionProgress = 0;
-        protection = Protection.NORMAL;
-        protectionTicks = 0;
 
-        if (t >= 2.0 && t < 3.0) {
-            interactionTarget = new InteractionTarget(InteractionType.PICKUP, "M1");
-            interactionProgress = progressWithin(t - 2.0);
-        } else if (t >= 3.0 && t < 4.0) {
-            carrying = "M1";
-        } else if (t >= 4.0 && t < 5.0) {
-            interactionTarget = new InteractionTarget(InteractionType.DELIVER, "D1");
-            interactionProgress = progressWithin(t - 4.0);
-        } else if (t >= 5.0 && t < 6.0) {
-            carrying = "M2";
-        } else if (t >= 6.0 && t < 7.0) {
-            interactionTarget = new InteractionTarget(InteractionType.DELIVER, "D2");
-            interactionProgress = progressWithin(t - 6.0);
-        } else if (t >= 7.0 && t < 8.0) {
-            carrying = "M3";
-        } else if (t >= 8.0 && t < 9.0) {
-            interactionTarget = new InteractionTarget(InteractionType.DELIVER, "D3");
-            interactionProgress = progressWithin(t - 8.0);
-        } else if (exitsOpen && t < 10.0) {
-            interactionTarget = new InteractionTarget(InteractionType.ESCAPE, "E1");
-            interactionProgress = progressWithin(t - 9.0);
-        }
-        return false;
-    }
-
-    private int progressWithin(double elapsedInPhase) {
-        double seconds = data.rules.interactTicks / (double) data.rules.tickRate;
-        if (seconds <= 0) return 0;
-        return (int) Math.round(Math.min(1.0, elapsedInPhase / seconds) * data.rules.interactTicks);
-    }
 
     private void startMatch() {
+        matchId = MATCH_PREFIX + (++matchSeq);
         SpawnPose spawn = data.map.spawns.get(selfRole);
         x = spawn.x;
         y = spawn.y;
@@ -323,6 +345,7 @@ public final class FakeGateway implements ClientGateway {
         tick = 0;
         marks = 0;
         delivered = 0;
+        deliveredIds.clear();
         carrying = null;
         protection = Protection.NORMAL;
         protectionTicks = 0;
@@ -330,15 +353,68 @@ public final class FakeGateway implements ClientGateway {
         interactionProgress = 0;
         exitsOpen = false;
         phase = RoomPhase.RUNNING;
+        simAcc = 0;
+        inputSeq = 0;
+        engine = new V1EngineFactory().create(data.map, data.rules,
+                new MatchInit(matchId, policeId(), thiefId()));
         emitRoom();
         emitView();
     }
 
-    private void finish(ResultReason reason) {
+    private String selfId() { return SELF_ID; }
+
+    private String opponentId() { return OPPONENT_ID; }
+
+    private String policeId() { return selfRole == Role.POLICE ? SELF_ID : OPPONENT_ID; }
+
+    private String thiefId() { return selfRole == Role.THIEF ? SELF_ID : OPPONENT_ID; }
+
+    /** Copies the engine's authoritative view back into the fields the fixture projects from. */
+    private void adoptFromEngine() {
+        if (engine == null) return;
+        PlayerView v = engine.viewFor(SELF_ID);
+        if (v == null) return;
+        tick = v.tick;
+        x = v.self.x;
+        y = v.self.y;
+        headingRad = v.self.headingRad;
+        marks = v.marks;
+        delivered = v.deliveredCount;
+        exitsOpen = v.exitsOpen;
+        carrying = v.thief == null ? null : v.thief.carriedMaterialId;
+        protection = v.thief == null ? Protection.NORMAL : v.thief.protection;
+        protectionTicks = v.thief == null ? 0 : v.thief.protectionRemainingTicks;
+        if (v.thief != null && v.thief.interaction != null) {
+            interactionTarget = v.thief.interaction.candidate;
+            interactionProgress = v.thief.interaction.progressTicks;
+            interactionLocked = v.thief.interaction.requiresRelease;
+        }
+        if (v.opponent != null) {
+            opponentX = v.opponent.x;
+            opponentY = v.opponent.y;
+            opponentVisibleState = true;
+        } else {
+            opponentVisibleState = false;
+        }
+        deliveredIds.clear();
+        if (v.thief != null && v.thief.deliveredMaterialIds != null) {
+            deliveredIds.addAll(v.thief.deliveredMaterialIds);
+        }
+        // The engine owns where a dropped material lies; mirror it so the projection below (and
+        // therefore the renderer) uses the drop position instead of the map's original one.
+        dropped.clear();
+        if (v.thief != null && v.thief.groundMaterials != null) {
+            for (GroundMaterial material : v.thief.groundMaterials) {
+                dropped.put(material.materialId, new double[]{material.x, material.y});
+            }
+        }
+    }
+
+    void finish(ResultReason reason) {
         phase = RoomPhase.FINISHED;
         ready = false;
         input = InputFrame.ZERO;
-        lastResult = new MatchResult(nextRequestId(), MATCH_ID, winnerFor(reason), reason, null,
+        lastResult = new MatchResult(nextRequestId(), matchId, winnerFor(reason), reason, null,
                 (int) Math.round(matchSeconds * data.rules.tickRate), marks, delivered, tick);
         emitRoom();
         listener.onResult(lastResult);
@@ -369,6 +445,8 @@ public final class FakeGateway implements ClientGateway {
     private void backToLobby() {
         phase = RoomPhase.LOBBY;
         ready = false;
+        opponentReady = false;
+        opponentReadyInSec = 0f;
         countdownMs = 0;
         matchSeconds = 0;
         tick = 0;
@@ -380,37 +458,103 @@ public final class FakeGateway implements ClientGateway {
         List<RoomPlayer> players = new ArrayList<>(2);
         players.add(new RoomPlayer(SELF_ID, selfRole, ready, ConnectionStates.CONNECTED, false));
         Role opponentRole = selfRole == Role.POLICE ? Role.THIEF : Role.POLICE;
-        players.add(new RoomPlayer(OPPONENT_ID, opponentRole, ready, ConnectionStates.CONNECTED, false));
+        players.add(new RoomPlayer(OPPONENT_ID, opponentRole, opponentReady,
+                ConnectionStates.CONNECTED, false));
 
-        String matchId = phase == RoomPhase.RUNNING || phase == RoomPhase.FINISHED ? MATCH_ID : null;
+        String liveMatchId = phase == RoomPhase.RUNNING || phase == RoomPhase.FINISHED
+                ? matchId : null;
         listener.onRoom(new RoomState(ROOM_ID, ++revision, phase, data.map.mapId, data.mapHash,
-                data.configHash, matchId, countdownMs, players));
+                data.configHash, liveMatchId, countdownMs, players));
     }
 
     private void emitView() {
         List<OriginStatus> origins = new ArrayList<>();
         List<GroundMaterial> ground = new ArrayList<>();
-        List<String> deliveredIds = new ArrayList<>();
+        List<String> deliveredList = new ArrayList<>();
         int index = 0;
         for (MaterialPoint point : data.map.materials) {
-            boolean alreadyDelivered = index < delivered;
+            boolean alreadyDelivered = deliveredIds.contains(point.id);
+            if (alreadyDelivered) deliveredList.add(point.id);
             boolean held = point.id.equals(carrying);
-            if (alreadyDelivered) deliveredIds.add(point.id);
             origins.add(new OriginStatus(point.id, alreadyDelivered || held));
             // Contract §7: carried and delivered materials are not part of groundMaterials.
-            if (!alreadyDelivered && !held) ground.add(new GroundMaterial(point.id, point.x, point.y));
+            if (!alreadyDelivered && !held) {
+                double[] at = dropped.get(point.id);
+                ground.add(new GroundMaterial(point.id, at == null ? point.x : at[0],
+                        at == null ? point.y : at[1]));
+            }
             index++;
         }
         ThiefPrivate thief = selfRole == Role.THIEF
-                ? new ThiefPrivate(carrying, protection, protectionTicks, ground, deliveredIds, interactionView())
+                ? new ThiefPrivate(carrying, protection, protectionTicks, ground, deliveredList, interactionView())
                 : null;
 
         // The demo ends at DEMO_MATCH_SECONDS, so that is the clock the HUD must show. Reporting
         // the rule's durationTicks here would promise 180 s and then finish at 12.
         int remaining = (int) Math.max(0,
                 Math.round((DEMO_MATCH_SECONDS - matchSeconds) * data.rules.tickRate));
-        listener.onView(new PlayerView(MATCH_ID, tick, tick * 33L, 0, selfRole, remaining, marks, delivered,
+        listener.onView(new PlayerView(matchId, tick, tick * 33L, 0, selfRole, remaining, marks, delivered,
                 exitsOpen, new ActorPose(SELF_ID, x, y, headingRad), visibleOpponent(), origins, thief));
+    }
+
+    /** Protection only runs after a delivery: 1.5 s invisible, then 1 s immune (rules §). */
+
+    /**
+     * The police marks by keeping the thief inside the beam: 24 ticks inside range and angle, with
+     * no wall between them. Three marks end the match, exactly like the server's rule.
+     */
+
+    /** Inside the cone and in sight. Range and angle come from the rules, never from literals. */
+    private boolean inBeam() {
+        double dx = opponentX - x;
+        double dy = opponentY - y;
+        double dist = Math.hypot(dx, dy);
+        if (dist > data.rules.beamRange) return false;
+        double half = Math.toRadians(data.rules.beamAngleDeg) / 2.0;
+        double angle = Math.atan2(dy, dx);
+        double delta = angle - headingRad;
+        while (delta > Math.PI) delta -= Math.PI * 2;
+        while (delta < -Math.PI) delta += Math.PI * 2;
+        if (Math.abs(delta) > half) return false;
+        return !WorldGeometry.segmentBlocked(data.map, x, y, opponentX, opponentY);
+    }
+
+    /**
+     * Proximity interaction for the offline demo: standing inside {@code rules.interactRange} of a
+     * ground material arms a pickup, of the matching delivery point arms a delivery, and holding
+     * the action button for {@code rules.interactTicks} completes it. Mirrors what the server does,
+     * using the same rules and the same map data.
+     */
+
+    private void releaseInteraction() {
+        interactionProgress = 0;
+        if (!interactionLocked) interactionTarget = null;
+    }
+
+    private InteractionType interactionType() {
+        return interactionTarget == null ? null : interactionTarget.type;
+    }
+
+    private String interactionId() {
+        return interactionTarget == null ? null : interactionTarget.targetId;
+    }
+
+    private boolean within(double px, double py, double range) {
+        return Math.hypot(px - x, py - y) <= range;
+    }
+
+    /** Contract §7: a material still on the floor is the one neither carried nor delivered. */
+    private boolean isOnGround(String materialId) {
+        if (materialId.equals(carrying)) return false;
+        int index = 0;
+        return !deliveredIds.contains(materialId);
+    }
+
+    private String deliveryOf(String materialId) {
+        for (MaterialPoint point : data.map.materials) {
+            if (point.id.equals(materialId)) return point.deliveryId;
+        }
+        return null;
     }
 
     private InteractionView interactionView() {
@@ -444,6 +588,11 @@ public final class FakeGateway implements ClientGateway {
     private int countdownTotalMs() {
         if (data.rules.tickRate <= 0) return 0;
         return (int) Math.round(data.rules.countdownTicks * 1000.0 / data.rules.tickRate);
+    }
+
+    /** Body-vs-wall test that shares the contract's geometry, so client and server agree. */
+    private boolean canStand(double px, double py, double radius) {
+        return WorldGeometry.canStand(data.map, px, py, radius);
     }
 
     private static double clamp(double value, double min, double max) {

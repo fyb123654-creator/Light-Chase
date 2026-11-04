@@ -22,6 +22,8 @@ final class UiTheme {
     static final Color DIM       = new Color(0.960f, 0.960f, 0.960f, 1f);
     static final Color FAINT     = new Color(0.960f, 0.960f, 0.960f, 1f);
     static final Color LINE      = new Color(0.260f, 0.260f, 0.260f, 1f);
+    /** The one grey used by every secondary line. */
+    static final Color MUTED     = new Color(0.62f, 0.62f, 0.62f, 1f);
     static final Color ACCENT    = new Color(0.760f, 0.380f, 0.330f, 1f);   // #C26154, softer
     static final Color ON_LIGHT  = new Color(0.039f, 0.039f, 0.039f, 1f);
 

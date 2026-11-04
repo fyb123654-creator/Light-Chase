@@ -30,6 +30,9 @@ public final class TouchController {
     /** Inside this fraction of the stick radius the direction is treated as zero. */
     public static final double DEADZONE = 0.15;
 
+    /** The world is wider than 1280 on most phones, so the action button must follow it. */
+    private float worldWidth = UI_WIDTH;
+
     private int joystickPointer = -1;
     private int holdPointer = -1;
     private double moveX;
@@ -38,19 +41,27 @@ public final class TouchController {
     private boolean dropPulse;
 
     /** @return true when the event was consumed by a control. */
+    /** Convenience for callers that do not track the carried state (empty hands). */
     public boolean down(int pointer, float x, float y, boolean thiefRole) {
+        return down(pointer, x, y, thiefRole, false);
+    }
+
+    /**
+     * One action button. Carrying a material makes it the drop action (a one-shot pulse), an
+     * empty hand makes it the hold action. The pointer is captured either way so the button can
+     * stay shrunk until the finger lifts.
+     */
+    public boolean down(int pointer, float x, float y, boolean thiefRole, boolean carrying) {
         if (joystickPointer == -1 && distance(x, y, JOY_X, JOY_Y) <= JOY_GRAB) {
             joystickPointer = pointer;
             updateJoystick(x, y);
             return true;
         }
-        if (thiefRole && holdPointer == -1 && distance(x, y, HOLD_X, HOLD_Y) <= HOLD_R) {
+        if (thiefRole && holdPointer == -1 && distance(x, y, actionX(), actionY()) <= HOLD_R) {
+            // The button is always a hold: the server decides pickup, deliver or escape from
+            // context. A short tap while carrying drops the material on the floor instead.
             holdPointer = pointer;
             interact = true;
-            return true;
-        }
-        if (thiefRole && distance(x, y, DROP_X, DROP_Y) <= DROP_R) {
-            dropPulse = true;
             return true;
         }
         return false;
@@ -64,7 +75,7 @@ public final class TouchController {
         if (pointer == holdPointer) {
             // Sliding off the button releases the hold but keeps the pointer captured, so sliding
             // back re-arms it without a second touch.
-            interact = distance(x, y, HOLD_X, HOLD_Y) <= HOLD_R;
+            interact = distance(x, y, actionX(), actionY()) <= HOLD_R;
             return true;
         }
         return false;
@@ -101,6 +112,25 @@ public final class TouchController {
         InputFrame frame = new InputFrame(moveX, moveY, interact, dropPulse);
         dropPulse = false;
         return frame;
+    }
+
+    /** Queues a one-shot drop, used when the action button is tapped rather than held. */
+    public void fireDrop() {
+        dropPulse = true;
+    }
+
+    /** Called on resize so the action button stays in the corner on every aspect ratio. */
+    public void setWorldWidth(float width) {
+        if (width > 0f) worldWidth = width;
+    }
+
+    /** Centre of the single action button: the bottom-right corner, same margin as the stick. */
+    public float actionX() {
+        return worldWidth - 72f - HOLD_R;
+    }
+
+    public float actionY() {
+        return 72f + HOLD_R;
     }
 
     public boolean hasPointers() { return joystickPointer != -1 || holdPointer != -1; }
