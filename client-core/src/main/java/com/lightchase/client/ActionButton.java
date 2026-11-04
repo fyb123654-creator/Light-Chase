@@ -213,18 +213,21 @@ final class ActionButton {
         }
 
         float lift = 10f * morph * liftCarry + 6f * successLift;
-        if (escapeFade < 0.02f) gem(shapes, cx, cy + 8f + lift, 21f);
+        // The gem fades out twice as fast as the exit frame fades in, so it never pokes through.
+        float gemWeight = clamp01(1f - escapeFade * 2f);
+        if (gemWeight > 0.02f) gem(shapes, cx, cy + 8f + lift, 21f, gemWeight);
 
-        boolean idle = checkT < 0f;
-        if (idle && iconReveal > 0.02f && morph > 0.02f) {
+        // iconReveal is what fades during the tick: gating on it (and not on checkT) means the
+        // icons leave and come back gradually instead of being cut.
+        if (iconReveal > 0.02f && morph > 0.02f) {
             float a = iconReveal * morph * (1f - deliverFade);
             if (a > 0.02f) dropArrow(shapes, cx, cy, a);
         }
         if (tickAlpha > 0.02f) tick(shapes, cx, cy - 20f, p1, p2, tickAlpha);
-        if (idle && iconReveal > 0.02f && escapeFade > 0.02f) {
+        if (iconReveal > 0.02f && escapeFade > 0.02f) {
             escapePortal(shapes, cx, cy, bed, iconReveal * escapeFade);
         }
-        if (idle && iconReveal > 0.02f && deliverFade > 0.02f) {
+        if (iconReveal > 0.02f && deliverFade > 0.02f) {
             deliverTray(shapes, cx, cy, iconReveal * deliverFade);
         }
     }
@@ -293,28 +296,28 @@ final class ActionButton {
     // ---- icon parts ------------------------------------------------------------------------
 
     /** Faceted blue gem: crown, girdle, pavilion and a glint. */
-    private static void gem(ShapeRenderer shapes, float cx, float cy, float half) {
-        shapes.setColor(1f, 1f, 1f, 0.85f);
+    private static void gem(ShapeRenderer shapes, float cx, float cy, float half, float alpha) {
+        shapes.setColor(1f, 1f, 1f, alpha * 0.85f);
         shapes.triangle(cx, cy + half * 1.05f, cx - half * 0.88f, cy + half * 0.16f,
                 cx + half * 0.88f, cy + half * 0.16f);
         shapes.triangle(cx - half * 0.88f, cy + half * 0.16f, cx + half * 0.88f, cy + half * 0.16f,
                 cx, cy - half * 1.05f);
         float t = 0.86f;
-        shapes.setColor(0.42f, 0.74f, 1f, 1f);
+        shapes.setColor(0.42f, 0.74f, 1f, alpha);
         shapes.triangle(cx, cy + half * t, cx - half * 0.78f, cy + half * 0.20f,
                 cx + half * 0.78f, cy + half * 0.20f);
-        shapes.setColor(0.62f, 0.86f, 1f, 1f);
+        shapes.setColor(0.62f, 0.86f, 1f, alpha);
         shapes.triangle(cx, cy + half * t, cx - half * 0.30f, cy + half * 0.30f,
                 cx + half * 0.16f, cy + half * 0.30f);
-        shapes.setColor(0.18f, 0.44f, 0.86f, 1f);
+        shapes.setColor(0.18f, 0.44f, 0.86f, alpha);
         shapes.triangle(cx - half * 0.78f, cy + half * 0.16f, cx + half * 0.78f, cy + half * 0.16f,
                 cx, cy - half * 0.96f);
-        shapes.setColor(0.12f, 0.30f, 0.68f, 1f);
+        shapes.setColor(0.12f, 0.30f, 0.68f, alpha);
         shapes.triangle(cx - half * 0.78f, cy + half * 0.16f, cx - half * 0.10f, cy + half * 0.16f,
                 cx, cy - half * 0.96f);
-        shapes.setColor(1f, 1f, 1f, 0.55f);
+        shapes.setColor(1f, 1f, 1f, alpha * 0.55f);
         shapes.rect(cx - half * 0.80f, cy + half * 0.14f, half * 1.60f, half * 0.07f);
-        shapes.setColor(1f, 1f, 1f, 0.9f);
+        shapes.setColor(1f, 1f, 1f, alpha * 0.9f);
         shapes.triangle(cx - half * 0.46f, cy + half * 0.72f, cx - half * 0.20f, cy + half * 0.34f,
                 cx - half * 0.06f, cy + half * 0.52f);
     }

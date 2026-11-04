@@ -85,8 +85,6 @@ public final class LightChaseApp extends ApplicationAdapter {
     private static final float RESULT_ACTION_TOP = 552f;
     private static final float BOX_RADIUS = 0.0f;
 
-    private static final Color LOBBY_GREY = new Color(0.62f, 0.62f, 0.62f, 1f);
-    private static final Color LOBBY_GREY_DIM = new Color(0.50f, 0.50f, 0.50f, 1f);
     private static final Color LOBBY_UNDER = new Color(0.30f, 0.30f, 0.30f, 1f);
     private static final Color LOBBY_INK = new Color(0.05f, 0.05f, 0.05f, 1f);
     private static final Color CAP_BLUE = new Color(0.56f, 0.78f, 0.92f, 1f);
@@ -1221,67 +1219,16 @@ public final class LightChaseApp extends ApplicationAdapter {
     private final TextFade permFade = new TextFade();
 
 
-    private void pulse(int id) {
-        pulseId = id;
-        pulseT = 0f;
-    }
 
     /** Top of a label that is vertically centred inside the primary button's band. */
-    private float actionTextTop() {
-        return CONNECT_ACTION_TOP + (CTA_H - UiDraw.capHeight(fonts.mono)) / 2f;
-    }
 
     /** A ring, used for the hold/drop controls. */
     /**
      * HOLD: a green disc with a white rim, a clamp closed around the kept material. A pictogram
      * rather than a literal hand - at 70 px the silhouette of a hand turns into a blob.
      */
-    private void drawHoldDisc(ShapeRenderer shapes, float cx, float cy, float r, float alpha) {
-        Color bed = new Color(0.145f, 0.475f, 0.302f, 1f);
-        Color ink = new Color(0.043f, 0.086f, 0.063f, 0.95f);
-        Color gem = new Color(1f, 0.94f, 0.72f, 1f);
-
-        shapes.setColor(1f, 1f, 1f, alpha);
-        shapes.circle(cx, cy, r, 48);
-        shapes.setColor(bed);
-        shapes.circle(cx, cy, r - 3f, 48);
-
-        float u = r / 70f;
-        // a U-shaped clamp: two tall jaws joined underneath, open at the top
-        ShapeKit.capsule(shapes, cx - 28f * u, cy - 30f * u, 18f * u, 58f * u, ink);
-        ShapeKit.capsule(shapes, cx + 10f * u, cy - 30f * u, 18f * u, 58f * u, ink);
-        ShapeKit.capsule(shapes, cx - 26f * u, cy - 32f * u, 52f * u, 16f * u, ink);
-        // the material squeezed between them
-        shapes.setColor(gem);
-        shapes.triangle(cx, cy + 34f * u, cx - 15f * u, cy + 10f * u, cx + 15f * u, cy + 10f * u);
-        shapes.triangle(cx - 15f * u, cy + 10f * u, cx + 15f * u, cy + 10f * u, cx, cy - 14f * u);
-        shapes.setColor(1f, 1f, 1f, 0.9f);
-        shapes.triangle(cx, cy + 34f * u, cx - 5f * u, cy + 14f * u, cx + 6f * u, cy + 14f * u);
-    }
 
     /** DROP: a yellow disc with a white rim, the material leaving with a downward arrow. */
-    private void drawDropDisc(ShapeRenderer shapes, float cx, float cy, float r) {
-        Color bed = new Color(0.639f, 0.478f, 0.086f, 1f);
-        Color ink = new Color(0.114f, 0.086f, 0.020f, 0.95f);
-        Color gem = new Color(1f, 0.96f, 0.78f, 1f);
-
-        shapes.setColor(1f, 1f, 1f, 0.85f);
-        shapes.circle(cx, cy, r, 48);
-        shapes.setColor(bed);
-        shapes.circle(cx, cy, r - 3f, 48);
-
-        float u = r / 50f;
-        // the material, still in hand at the top
-        shapes.setColor(gem);
-        shapes.triangle(cx, cy + 34f * u, cx - 12f * u, cy + 16f * u, cx + 12f * u, cy + 16f * u);
-        shapes.triangle(cx - 12f * u, cy + 16f * u, cx + 12f * u, cy + 16f * u, cx, cy - 2f * u);
-        shapes.setColor(1f, 1f, 1f, 0.9f);
-        shapes.triangle(cx, cy + 34f * u, cx - 4f * u, cy + 20f * u, cx + 5f * u, cy + 20f * u);
-        // the arrow it travels along
-        shapes.setColor(ink);
-        shapes.rect(cx - 3f * u, cy - 14f * u, 6f * u, 14f * u);
-        shapes.triangle(cx - 12f * u, cy - 14f * u, cx + 12f * u, cy - 14f * u, cx, cy - 32f * u);
-    }
 
     /** A true ring: segments laid along the circle, so the inside stays see-through. */
 
@@ -1320,18 +1267,8 @@ public final class LightChaseApp extends ApplicationAdapter {
     /** As fitText but with a forced scale, so swapping the word never shifts the glyphs. */
 
     /** Text-only action with a marker underneath. */
-    private void secondaryAction(float x, float top, String label, boolean live, int pulseId) {
-        float p = pulseOf(pulseId);
-        scratchColor.set(live ? Color.WHITE : LOBBY_GREY);
-        scratchColor.lerp(Color.WHITE, p);
-        UiDraw.text(batch, fonts.mono, label, x, top, scratchColor, 1.5f);
-    }
 
     /** Label above a large value, aligned left. */
-    private void kv(float x, float top, String label, String value, Color valueColor) {
-        UiDraw.text(batch, fonts.mono, label, x, top, LOBBY_GREY, 1.2f);
-        UiDraw.text(batch, fonts.displaySmall, value, x, top + 24f, valueColor, 0.5f);
-    }
 
     /**
      * The inline editor. A light panel, a white field, and two navy buttons - the same shapes the
@@ -1393,9 +1330,6 @@ public final class LightChaseApp extends ApplicationAdapter {
         return x0 + boxW + GRID_GAP + boxW / 2f;
     }
 
-    private static Color blended(Color a, Color b, float t) {
-        return new Color(a).lerp(b, UiAnim.clamp01(t));
-    }
 
     /** Role name over its hint, both centred on the column; the marker under them is a shape. */
     /**
@@ -1747,10 +1681,6 @@ public final class LightChaseApp extends ApplicationAdapter {
         return target.equals(pressTarget) && System.nanoTime() / 1_000_000L - pressAtMs < UiTheme.PRESS_MS;
     }
 
-    private boolean takenByOther(Role role) {
-        RoomPlayer other = opponentPlayer();
-        return other != null && other.role == role;
-    }
 
     private String describe(RoomPlayer player) {
         String role = player.role == null ? "-" : player.role.name();
@@ -1777,15 +1707,7 @@ public final class LightChaseApp extends ApplicationAdapter {
 
     // ---------------------------------------------------------------- helpers
 
-    private void field(float x, float y, float w, float h) {
-        shapes.setColor(0.10f, 0.15f, 0.22f, 1f);
-        shapes.rect(x, y, w, h);
-    }
 
-    private void slot(float x, float y, float w, float h, boolean highlight) {
-        shapes.setColor(highlight ? new Color(0.13f, 0.22f, 0.30f, 1f) : new Color(0.09f, 0.14f, 0.20f, 1f));
-        shapes.rect(x, y, w, h);
-    }
 
     private void button(float x, float y, float w, float h, boolean highlight) {
         button(x, y, w, h, highlight, true);

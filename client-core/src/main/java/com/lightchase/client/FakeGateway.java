@@ -1,8 +1,8 @@
 package com.lightchase.client;
 
 import com.lightchase.contracts.*;
-import com.lightchase.contracts.geometry.WorldGeometry;
 import com.lightchase.data.DataFiles;
+import com.lightchase.contracts.geometry.WorldGeometry;
 import com.lightchase.game.V1EngineFactory;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -29,7 +29,8 @@ public final class FakeGateway implements ClientGateway {
     static final double DEMO_MATCH_SECONDS = 12.0;
     private static final double SPEED = 3.0;
     /** Thief speed multiplier; the app raises it while the map is being tested by hand. */
-    private double thiefSpeedScale = 1.0;
+    /** Seconds a demo match lasts; tests that walk across the map raise it. */
+    private double demoLength = DEMO_MATCH_SECONDS;
     private static final String SESSION_ID = "offline-session";
     private static final String SELF_ID = "demo-self";
     private static final String OPPONENT_ID = "demo-opponent";
@@ -39,13 +40,8 @@ public final class FakeGateway implements ClientGateway {
     private static final String ROOM_ID = "DEMO";
 
     DataFiles data;
-    /** A's rule engine; offline matches run on it instead of a second implementation. */
-    private MatchEngine engine;
-    /** Seconds not yet handed to the engine, so it is stepped at the rule tick rate. */
-    private double simAcc;
-    private long inputSeq;
-    /** Monotonic id for the drop pulse; the engine drops when it sees a new id. */
-    private long dropSeq;
+    /** Drives A's rule engine; the fixture only stages it and projects its view. */
+    private EngineMatch match;
     private GatewayListener listener;
     private Scenario scenario = Scenario.NORMAL;
 
@@ -93,17 +89,10 @@ public final class FakeGateway implements ClientGateway {
 
     public void useOpponentReadyDelay(float seconds) { opponentReadyDelay = Math.max(0f, seconds); }
 
-    public void useThiefSpeedScale(double scale) { thiefSpeedScale = Math.max(1.0, scale); }
-
     public void useScenario(Scenario value) { scenario = value; }
+
     public Scenario scenario() { return scenario; }
-    public RoomPhase phase() { return phase; }
-    public int countdownMs() { return countdownMs; }
-    public boolean ready() { return ready; }
-    public Role selfRole() { return selfRole; }
-    public MatchResult lastResult() { return lastResult; }
-    public Protection protection() { return protection; }
-    public InputFrame lastInput() { return input; }
+
 
     @Override public void connect(ConnectionOptions options, GatewayListener listener) {
         if (data == null) throw new IllegalStateException("Configure fixture data first");
@@ -128,6 +117,19 @@ public final class FakeGateway implements ClientGateway {
         }
         emitRoom();
     }
+    public RoomPhase phase() { return phase; }
+
+    public int countdownMs() { return countdownMs; }
+
+    public boolean ready() { return ready; }
+
+    public Role selfRole() { return selfRole; }
+
+    public MatchResult lastResult() { return lastResult; }
+
+    public Protection protection() { return protection; }
+
+    public InputFrame lastInput() { return input; }
 
     @Override public void selectRole(Role role) {
         if (listener == null) return;
@@ -281,39 +283,21 @@ public final class FakeGateway implements ClientGateway {
             return;
         }
 
-        // Normal play: A's engine owns every rule. We feed it the local command plus a stationary
-        // opponent and copy the authoritative view back into the fields the fixture projects from.
-        double tickLen = 1.0 / data.rules.tickRate;
-        simAcc += dt;
-        while (simAcc >= tickLen) {
-            simAcc -= tickLen;
-            inputSeq++;
-            List<PlayerCommand> commands = new ArrayList<>(2);
-            Long dropId = null;
-            if (input.dropPressed) {
-                dropId = ++dropSeq;
-                // Consume the pulse: one tap is one drop, not one per tick it stays latched.
-                input = new InputFrame(input.moveX, input.moveY, input.interactHeld, false);
-            }
-            commands.add(new PlayerCommand(selfId(), inputSeq, input.moveX, input.moveY,
-                    input.interactHeld, dropId));
-            commands.add(new PlayerCommand(opponentId(), inputSeq, 0, 0, false, null));
-            StepResult step = engine.step(new StepInput(inputSeq, commands,
-                    new ArrayList<>()));
-            if (step.ended && step.result != null) {
-                adoptFromEngine();
-                lastResult = step.result;
-                phase = RoomPhase.FINISHED;
-                ready = false;
-                input = InputFrame.ZERO;
-                emitRoom();
-                listener.onResult(lastResult);
-                return;
-            }
+        // Normal play: A's engine owns every rule; EngineMatch does the stepping.
+        MatchResult ended = match.advance(dt, input, selfId(), opponentId());
+        if (ended != null) {
+            adoptFromEngine();
+            lastResult = ended;
+            phase = RoomPhase.FINISHED;
+            ready = false;
+            input = InputFrame.ZERO;
+            emitRoom();
+            listener.onResult(lastResult);
+            return;
         }
         adoptFromEngine();
         emitView();
-        if (matchSeconds >= DEMO_MATCH_SECONDS) finish(ResultReason.TIMEOUT);
+        if (matchSeconds >= demoLength) finish(ResultReason.TIMEOUT);
     }
 
     /**
@@ -353,10 +337,8 @@ public final class FakeGateway implements ClientGateway {
         interactionProgress = 0;
         exitsOpen = false;
         phase = RoomPhase.RUNNING;
-        simAcc = 0;
-        inputSeq = 0;
-        engine = new V1EngineFactory().create(data.map, data.rules,
-                new MatchInit(matchId, policeId(), thiefId()));
+        match = new EngineMatch(data);
+        match.start(matchId, policeId(), thiefId());
         emitRoom();
         emitView();
     }
@@ -371,8 +353,8 @@ public final class FakeGateway implements ClientGateway {
 
     /** Copies the engine's authoritative view back into the fields the fixture projects from. */
     private void adoptFromEngine() {
-        if (engine == null) return;
-        PlayerView v = engine.viewFor(SELF_ID);
+        if (match == null) return;
+        PlayerView v = match.view(SELF_ID);
         if (v == null) return;
         tick = v.tick;
         x = v.self.x;
@@ -492,7 +474,7 @@ public final class FakeGateway implements ClientGateway {
         // The demo ends at DEMO_MATCH_SECONDS, so that is the clock the HUD must show. Reporting
         // the rule's durationTicks here would promise 180 s and then finish at 12.
         int remaining = (int) Math.max(0,
-                Math.round((DEMO_MATCH_SECONDS - matchSeconds) * data.rules.tickRate));
+                Math.round((demoLength - matchSeconds) * data.rules.tickRate));
         listener.onView(new PlayerView(matchId, tick, tick * 33L, 0, selfRole, remaining, marks, delivered,
                 exitsOpen, new ActorPose(SELF_ID, x, y, headingRad), visibleOpponent(), origins, thief));
     }
@@ -505,19 +487,6 @@ public final class FakeGateway implements ClientGateway {
      */
 
     /** Inside the cone and in sight. Range and angle come from the rules, never from literals. */
-    private boolean inBeam() {
-        double dx = opponentX - x;
-        double dy = opponentY - y;
-        double dist = Math.hypot(dx, dy);
-        if (dist > data.rules.beamRange) return false;
-        double half = Math.toRadians(data.rules.beamAngleDeg) / 2.0;
-        double angle = Math.atan2(dy, dx);
-        double delta = angle - headingRad;
-        while (delta > Math.PI) delta -= Math.PI * 2;
-        while (delta < -Math.PI) delta += Math.PI * 2;
-        if (Math.abs(delta) > half) return false;
-        return !WorldGeometry.segmentBlocked(data.map, x, y, opponentX, opponentY);
-    }
 
     /**
      * Proximity interaction for the offline demo: standing inside {@code rules.interactRange} of a
@@ -531,31 +500,11 @@ public final class FakeGateway implements ClientGateway {
         if (!interactionLocked) interactionTarget = null;
     }
 
-    private InteractionType interactionType() {
-        return interactionTarget == null ? null : interactionTarget.type;
-    }
 
-    private String interactionId() {
-        return interactionTarget == null ? null : interactionTarget.targetId;
-    }
 
-    private boolean within(double px, double py, double range) {
-        return Math.hypot(px - x, py - y) <= range;
-    }
 
     /** Contract §7: a material still on the floor is the one neither carried nor delivered. */
-    private boolean isOnGround(String materialId) {
-        if (materialId.equals(carrying)) return false;
-        int index = 0;
-        return !deliveredIds.contains(materialId);
-    }
 
-    private String deliveryOf(String materialId) {
-        for (MaterialPoint point : data.map.materials) {
-            if (point.id.equals(materialId)) return point.deliveryId;
-        }
-        return null;
-    }
 
     private InteractionView interactionView() {
         if (interactionTarget == null) return new InteractionView(null, null, 0, false, "NO_TARGET");
@@ -591,9 +540,6 @@ public final class FakeGateway implements ClientGateway {
     }
 
     /** Body-vs-wall test that shares the contract's geometry, so client and server agree. */
-    private boolean canStand(double px, double py, double radius) {
-        return WorldGeometry.canStand(data.map, px, py, radius);
-    }
 
     private static double clamp(double value, double min, double max) {
         return value < min ? min : (value > max ? max : value);

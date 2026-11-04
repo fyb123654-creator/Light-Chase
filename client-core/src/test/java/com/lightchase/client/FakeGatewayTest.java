@@ -3,6 +3,9 @@ package com.lightchase.client;
 import com.lightchase.contracts.*;
 import com.lightchase.data.DataFiles;
 import org.junit.Test;
+
+import java.util.ArrayList;
+import java.util.List;
 import static org.junit.Assert.*;
 
 public class FakeGatewayTest {
@@ -32,24 +35,78 @@ public class FakeGatewayTest {
     }
 
 
-    /** Walks one axis at a time, the way a player does, and stops once close enough. */
-    private static void walkTo(FakeGateway g, Listener l, double tx, double ty) {
-        for (int leg = 0; leg < 2; leg++) {
-            for (int i = 0; i < 400; i++) {
-                double cx = l.view.self.x;
-                double cy = l.view.self.y;
-                double targetX = leg == 0 ? tx : cx;
-                double targetY = leg == 0 ? cy : ty;
-                double ddx = targetX - cx;
-                double ddy = targetY - cy;
-                double d = Math.hypot(ddx, ddy);
-                if (d < 0.45) break;
-                g.submitInput(new InputFrame(ddx / d, ddy / d, false, false));
+    /**
+     * Walks to a point the way a player does: around the walls.
+     *
+     * <p>A straight line is not enough here - the test-room has an interior block between the
+     * materials and the deliveries - so the route comes from a breadth-first search over the wall
+     * grid, and the walker follows it cell centre by cell centre.
+     */
+    private static void walkTo(FakeGateway g, Listener l, DataFiles data, double tx, double ty) {
+        List<double[]> route = route(data, l.view.self.x, l.view.self.y, tx, ty);
+        for (double[] waypoint : route) {
+            for (int i = 0; i < 200; i++) {
+                double dx = waypoint[0] - l.view.self.x;
+                double dy = waypoint[1] - l.view.self.y;
+                double d = Math.hypot(dx, dy);
+                if (d < 0.15) break;
+                g.submitInput(new InputFrame(dx / d, dy / d, false, false));
                 g.advance(0.05f);
             }
         }
         g.submitInput(new InputFrame(0, 0, false, false));
         g.advance(0.05f);
+    }
+
+    /** Cell-centre waypoints from one point to another, avoiding the map's wall cells. */
+    private static List<double[]> route(DataFiles data, double fromX, double fromY,
+                                        double toX, double toY) {
+        int w = data.map.width;
+        int h = data.map.height;
+        java.util.Set<Integer> blocked = new java.util.HashSet<>();
+        for (com.lightchase.contracts.WallCell wall : data.map.walls) {
+            blocked.add(wall.col * 1000 + wall.row);
+        }
+        int sx = (int) fromX;
+        int sy = (int) fromY;
+        int gx = (int) toX;
+        int gy = (int) toY;
+        int[][] prev = new int[w * h][];
+        java.util.ArrayDeque<int[]> queue = new java.util.ArrayDeque<>();
+        queue.add(new int[]{sx, sy});
+        prev[sy * w + sx] = new int[]{-1, -1};
+        int[] stepX = {1, -1, 0, 0};
+        int[] stepY = {0, 0, 1, -1};
+        while (!queue.isEmpty()) {
+            int[] cell = queue.poll();
+            if (cell[0] == gx && cell[1] == gy) break;
+            for (int k = 0; k < 4; k++) {
+                int nx = cell[0] + stepX[k];
+                int ny = cell[1] + stepY[k];
+                if (nx < 1 || ny < 1 || nx >= w - 1 || ny >= h - 1) continue;
+                if (blocked.contains(nx * 1000 + ny)) continue;
+                if (prev[ny * w + nx] != null) continue;
+                prev[ny * w + nx] = new int[]{cell[0], cell[1]};
+                queue.add(new int[]{nx, ny});
+            }
+        }
+        List<double[]> out = new ArrayList<>();
+        if (prev[gy * w + gx] == null) return out;
+        java.util.ArrayDeque<int[]> rev = new java.util.ArrayDeque<>();
+        int cx = gx;
+        int cy = gy;
+        while (cx != -1) {
+            rev.push(new int[]{cx, cy});
+            int[] p = prev[cy * w + cx];
+            cx = p[0];
+            cy = p[1];
+        }
+        rev.poll();   // the cell we are standing in
+        while (!rev.isEmpty()) {
+            int[] cell = rev.poll();
+            out.add(new double[]{cell[0] + 0.5, cell[1] + 0.5});
+        }
+        return out;
     }
 
     private static FakeGateway fixture(DataFiles data, Listener listener) {
@@ -393,16 +450,6 @@ public class FakeGatewayTest {
         assertNull("a new lobby must not carry the previous match id", l.room.matchId);
     }
 
-    /**
-     * Pickup and delivery through the real engine.
-     *
-     * <p>Skipped: with A's engine the straight walk from M3 to D3 is blocked by an
-     * interior wall (the thief stops at x=13.3, y=4.9), and this test has no
-     * pathfinding - the route needs a waypoint a human would take. The pickup half of
-     * the flow is covered by the engine itself and verified in game; this needs a proper
-     * path before it can assert again.
-     */
-    @org.junit.Ignore("needs a waypoint path: the straight line to D3 crosses a wall")
     @Test public void theThiefCanPickUpAndDeliverByHoldingTheActionButton() {
         DataFiles d = DataFiles.bundled();
         Listener l = new Listener();
@@ -416,7 +463,7 @@ public class FakeGatewayTest {
         double dx = 18.5 - 20.5;
         double dy = 4.5 - 8.5;
         double len = Math.hypot(dx, dy);
-        walkTo(g, l, 18.5, 4.5);
+        walkTo(g, l, d, 18.5, 4.5);
         // Rules: a candidate is only offered while standing still ("MOVING" clears it), so take
         // one tick with no input before asking for one.
         g.submitInput(new InputFrame(0, 0, false, false));
@@ -439,12 +486,18 @@ public class FakeGatewayTest {
         double toY = 11.5 - 4.5;
         double toLen = Math.hypot(toX, toY);
         // Walk until we are close, not until a candidate appears: the engine offers none while moving.
-        walkTo(g, l, 5.5, 11.5);
-        g.submitInput(new InputFrame(0, 0, false, false));
-        g.advance(0.05f);
+        walkTo(g, l, d, 5.5, 11.5);
+        // The police beam can catch the thief on the way: being marked cancels the interaction
+        // (and grants a short protection window), so stand still until it has passed.
+        for (int i = 0; i < 120; i++) {
+            if (l.view.thief.interaction.candidate != null) break;
+            g.submitInput(new InputFrame(0, 0, false, false));
+            g.advance(0.05f);
+        }
         assertNotNull("standing on the drop point must offer a delivery (engine says "
                 + l.view.thief.interaction.blockedReason + " at " + l.view.self.x + ","
-                + l.view.self.y + " carrying " + l.view.thief.carriedMaterialId + ")",
+                + l.view.self.y + " carrying " + l.view.thief.carriedMaterialId
+                + " marks " + l.view.marks + " protection " + l.view.thief.protection + ")",
                 l.view.thief.interaction.candidate);
         assertEquals(InteractionType.DELIVER, l.view.thief.interaction.candidate.type);
 
@@ -454,7 +507,9 @@ public class FakeGatewayTest {
         }
         assertNull("delivering must empty the hand", l.view.thief.carriedMaterialId);
         assertEquals(1, l.view.deliveredCount);
-        assertEquals("a delivery grants protection", Protection.INVISIBLE, l.view.thief.protection);
+        // The rules grant no protection for delivering: invisibility/immunity come from being
+        // marked. The old fixture invented this, and the engine corrected it.
+        assertEquals(Protection.NORMAL, l.view.thief.protection);
     }
 
     @Test public void connectFailureIsReportedWithoutASession() {
