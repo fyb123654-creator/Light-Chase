@@ -229,25 +229,53 @@ final class ActionButton {
         }
     }
 
-    /** The caption under the button. One word at a time, cross-faded. */
-    void drawCaption(Batch batch, BitmapFont font, float cx, float capTop, Color ink) {
+    /** The six caption weights of one frame. Pure: no GL, so it can be asserted directly. */
+    static final class Labels {
+        public final float hold;
+        public final float drop;
+        public final float deliver;
+        public final float escape;
+        public final float wait;
+        public final float win;
+
+        Labels(float hold, float drop, float deliver, float escape, float wait, float win) {
+            this.hold = hold;
+            this.drop = drop;
+            this.deliver = deliver;
+            this.escape = escape;
+            this.wait = wait;
+            this.win = win;
+        }
+    }
+
+    /**
+     * How strongly each word reads this frame.
+     *
+     * <p>The four modes are a partition - they always sum to one - so exactly one word shows and a
+     * decay in one is a rise in another, never a flash of a third. The two "running" words layer on
+     * top and take over while they apply; WIN ! cross-fades with ESCAPE once the escape lands.
+     */
+    Labels labels() {
         float vis = 1f - captionTick;
         float idle = 1f - captionDoing;
         float wEscape = escapeFade;
         float wDeliver = Math.max(0f, deliverFade - wEscape);
         float wDrop = Math.max(0f, morph * clamp01((0.30f - deliverFade) / 0.30f) - wEscape - wDeliver);
         float wHold = Math.max(0f, 1f - wEscape - wDeliver - wDrop);
-        boolean doing = captionDoing > 0.001f;
+        return new Labels(wHold * idle * vis, wDrop * idle * vis, wDeliver * idle * vis,
+                wEscape * idle * (1f - winFade) * vis, captionDoing * (1f - winFade) * vis,
+                wEscape * winFade);
+    }
 
-        label(batch, font, "HOLD", cx, capTop, wHold * idle * vis, ink);
-        label(batch, font, "DROP", cx, capTop, wDrop * idle * vis, ink);
-        label(batch, font, "DELIVER", cx, capTop, wDeliver * idle * vis, ink);
-        label(batch, font, "ESCAPE", cx, capTop, wEscape * idle * (1f - winFade) * vis, ink);
-        label(batch, font, "Wait...", cx, capTop, captionDoing * (1f - winFade) * vis, ink);
-        label(batch, font, "WIN !", cx, capTop, wEscape * winFade, ink);
-        if (doing) {
-            // nothing extra: "Wait..." above already carries the whole bar-running story
-        }
+    /** The caption under the button. One word at a time, cross-faded. */
+    void drawCaption(Batch batch, BitmapFont font, float cx, float capTop, Color ink) {
+        Labels l = labels();
+        label(batch, font, "HOLD", cx, capTop, l.hold, ink);
+        label(batch, font, "DROP", cx, capTop, l.drop, ink);
+        label(batch, font, "DELIVER", cx, capTop, l.deliver, ink);
+        label(batch, font, "ESCAPE", cx, capTop, l.escape, ink);
+        label(batch, font, "Wait...", cx, capTop, l.wait, ink);
+        label(batch, font, "WIN !", cx, capTop, l.win, ink);
     }
 
     private static void label(Batch batch, BitmapFont font, String text, float cx, float top,
