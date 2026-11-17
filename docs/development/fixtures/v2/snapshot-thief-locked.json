@@ -1,0 +1,131 @@
+{
+  "v": 2,
+  "type": "SNAPSHOT",
+  "seq": 1,
+  "requestId": null,
+  "matchId": "m-ext-001",
+  "body": {
+    "matchId": "m-ext-001",
+    "tick": 300,
+    "serverTimeMs": 10000,
+    "ackInputSeq": 20,
+    "role": "THIEF",
+    "remainingTicks": 5100,
+    "marks": 1,
+    "deliveredCount": 0,
+    "exitsOpen": false,
+    "self": {
+      "playerId": "p-thief",
+      "x": 2.0,
+      "y": 2.0,
+      "headingRad": 0.0,
+      "aimRad": null,
+      "beam": null,
+      "motion": "GROUND"
+    },
+    "opponent": null,
+    "originStatus": [
+      {
+        "materialId": "M1",
+        "everPicked": false
+      },
+      {
+        "materialId": "M2",
+        "everPicked": false
+      },
+      {
+        "materialId": "M3",
+        "everPicked": false
+      }
+    ],
+    "thief": {
+      "carriedMaterialId": null,
+      "protection": "NORMAL",
+      "protectionRemainingTicks": 0,
+      "invisibleUntilTick": 0,
+      "markImmuneUntilTick": 0,
+      "groundMaterials": [
+        {
+          "materialId": "M1",
+          "x": 5.0,
+          "y": 4.0
+        },
+        {
+          "materialId": "M2",
+          "x": 6.0,
+          "y": 4.0
+        },
+        {
+          "materialId": "M3",
+          "x": 7.0,
+          "y": 4.0
+        }
+      ],
+      "deliveredMaterialIds": [],
+      "card": null
+    },
+    "inventory": [
+      null,
+      null
+    ],
+    "effects": [],
+    "interaction": {
+      "candidate": null,
+      "active": null,
+      "progressTicks": 0,
+      "requiredTicks": 0,
+      "requiresRelease": false,
+      "blockedReason": "NO_TARGET"
+    },
+    "groundItems": [
+      {
+        "itemId": "S1",
+        "type": "SHIELD",
+        "ownerRole": "THIEF",
+        "x": 4.0,
+        "y": 2.0
+      },
+      {
+        "itemId": "S2",
+        "type": "SHIELD",
+        "ownerRole": "THIEF",
+        "x": 5.0,
+        "y": 2.0
+      },
+      {
+        "itemId": "L1",
+        "type": "LIGHT_BOOST",
+        "ownerRole": "POLICE",
+        "x": 6.0,
+        "y": 2.0
+      }
+    ],
+    "groundCards": [
+      {
+        "cardId": "C1",
+        "portalId": "P1",
+        "x": 2.0,
+        "y": 3.0
+      },
+      {
+        "cardId": "C2",
+        "portalId": "P2",
+        "x": 8.0,
+        "y": 3.0
+      }
+    ],
+    "portals": [
+      {
+        "portalId": "P1",
+        "unlocked": false,
+        "revision": 0
+      },
+      {
+        "portalId": "P2",
+        "unlocked": false,
+        "revision": 0
+      }
+    ],
+    "transits": []
+  }
+}

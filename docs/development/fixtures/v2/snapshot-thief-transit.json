@@ -1,0 +1,136 @@
+{
+  "v": 2,
+  "type": "SNAPSHOT",
+  "seq": 1,
+  "requestId": null,
+  "matchId": "m-ext-001",
+  "body": {
+    "matchId": "m-ext-001",
+    "tick": 415,
+    "serverTimeMs": 13833,
+    "ackInputSeq": 20,
+    "role": "THIEF",
+    "remainingTicks": 4985,
+    "marks": 1,
+    "deliveredCount": 0,
+    "exitsOpen": false,
+    "self": {
+      "playerId": "p-thief",
+      "x": 6.0,
+      "y": 5.0,
+      "headingRad": 0.0,
+      "aimRad": null,
+      "beam": null,
+      "motion": "TRANSIT"
+    },
+    "opponent": null,
+    "originStatus": [
+      {
+        "materialId": "M1",
+        "everPicked": false
+      },
+      {
+        "materialId": "M2",
+        "everPicked": false
+      },
+      {
+        "materialId": "M3",
+        "everPicked": false
+      }
+    ],
+    "thief": {
+      "carriedMaterialId": "M1",
+      "protection": "NORMAL",
+      "protectionRemainingTicks": 0,
+      "invisibleUntilTick": 0,
+      "markImmuneUntilTick": 0,
+      "groundMaterials": [
+        {
+          "materialId": "M2",
+          "x": 6.0,
+          "y": 4.0
+        },
+        {
+          "materialId": "M3",
+          "x": 7.0,
+          "y": 4.0
+        }
+      ],
+      "deliveredMaterialIds": [],
+      "card": null
+    },
+    "inventory": [
+      null,
+      null
+    ],
+    "effects": [],
+    "interaction": {
+      "candidate": null,
+      "active": null,
+      "progressTicks": 0,
+      "requiredTicks": 0,
+      "requiresRelease": false,
+      "blockedReason": "IN_TRANSIT"
+    },
+    "groundItems": [
+      {
+        "itemId": "S1",
+        "type": "SHIELD",
+        "ownerRole": "THIEF",
+        "x": 4.0,
+        "y": 2.0
+      },
+      {
+        "itemId": "S2",
+        "type": "SHIELD",
+        "ownerRole": "THIEF",
+        "x": 5.0,
+        "y": 2.0
+      },
+      {
+        "itemId": "L1",
+        "type": "LIGHT_BOOST",
+        "ownerRole": "POLICE",
+        "x": 6.0,
+        "y": 2.0
+      }
+    ],
+    "groundCards": [
+      {
+        "cardId": "C2",
+        "portalId": "P2",
+        "x": 8.0,
+        "y": 3.0
+      }
+    ],
+    "portals": [
+      {
+        "portalId": "P1",
+        "unlocked": true,
+        "revision": 1
+      },
+      {
+        "portalId": "P2",
+        "unlocked": false,
+        "revision": 0
+      }
+    ],
+    "transits": [
+      {
+        "transitId": "T1",
+        "portalId": "P1",
+        "playerId": "p-thief",
+        "from": {
+          "x": 2.0,
+          "y": 2.0
+        },
+        "to": {
+          "x": 10.0,
+          "y": 8.0
+        },
+        "startTick": 400,
+        "endTick": 430
+      }
+    ]
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "v": 2,
+  "type": "USE_ITEM",
+  "seq": 1,
+  "requestId": "a:1",
+  "matchId": "m-ext-001",
+  "body": {
+    "actionId": 1,
+    "slot": 0,
+    "expectedItemId": "S1"
+  }
+}

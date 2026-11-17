@@ -1,0 +1,65 @@
+{
+  "schema": "review-scenarios-v1",
+  "note": "期望用例，非线上消息；尚未执行引擎或Codec验收。",
+  "cases": [
+    {
+      "id": "shield-max",
+      "files": [
+        "snapshot-thief-two-shields.json",
+        "use-shield.json",
+        "action-success.json",
+        "snapshot-thief-shield-refreshed.json"
+      ],
+      "given": "当前 tick=300，真隐身截止450，配置 shieldTicks=90。",
+      "expected": "301 用 S1 后截止仍450，槽0空，marks仍1；S2保留。"
+    },
+    {
+      "id": "unlock-separate",
+      "files": [
+        "snapshot-thief-unlocking.json",
+        "snapshot-thief-unlocked-release.json"
+      ],
+      "given": "配置 portalUnlockTicks=15，300 开始持卡解锁 P1。",
+      "expected": "314 完成扣卡开门，仍在地表，必须松开重按进入。"
+    },
+    {
+      "id": "public-transit",
+      "files": [
+        "event-portal-started.json",
+        "snapshot-police-transit.json",
+        "snapshot-thief-transit.json",
+        "snapshot-police-landed-hidden.json"
+      ],
+      "given": "400至429传送，415在中点；小偷携M1。",
+      "expected": "双方同一T1光球，警察普通opponent=null；430后无光球，无隐藏位置。"
+    },
+    {
+      "id": "stale-item",
+      "files": [
+        "action-instance-mismatch.json"
+      ],
+      "given": "槽1实际是S2，收到期望old-S2的独立新操作。",
+      "expected": "失败不扣S2；同actionId重复结果只回调一次。"
+    },
+    {
+      "id": "original-immunity",
+      "files": [],
+      "given": "markImmuneUntilTick=120，tick0护盾90步或150步。",
+      "expected": "90步护盾后仅接30步免疫；150步护盾不在120截断，150直接正常。"
+    },
+    {
+      "id": "card-full-and-wrong",
+      "files": [],
+      "given": "已持C1，附近有C2和P2。",
+      "expected": "不能拾C2且地面保留；不能解锁P2且C1不消耗。"
+    },
+    {
+      "id": "fresh-match",
+      "files": [
+        "snapshot-thief-new-match.json"
+      ],
+      "given": "上一局库存/解锁/光球均出现过。",
+      "expected": "新matchId，两槽空、卡空、门灰、无光球效果；旧包不能作用新局。"
+    }
+  ]
+}

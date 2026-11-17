@@ -1,0 +1,16 @@
+{
+  "v": 2,
+  "type": "ACTION_RESULT",
+  "seq": 1,
+  "requestId": "a:1",
+  "matchId": "m-ext-001",
+  "body": {
+    "matchId": "m-ext-001",
+    "actionId": 1,
+    "slot": 0,
+    "expectedItemId": "S1",
+    "success": true,
+    "code": "OK",
+    "appliedTick": 301
+  }
+}

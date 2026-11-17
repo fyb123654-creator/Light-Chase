@@ -1,0 +1,16 @@
+{
+  "v": 2,
+  "type": "ACTION_RESULT",
+  "seq": 1,
+  "requestId": "a:2",
+  "matchId": "m-ext-001",
+  "body": {
+    "matchId": "m-ext-001",
+    "actionId": 2,
+    "slot": 1,
+    "expectedItemId": "old-S2",
+    "success": false,
+    "code": "ITEM_INSTANCE_MISMATCH",
+    "appliedTick": 302
+  }
+}

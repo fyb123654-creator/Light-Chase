@@ -1,0 +1,15 @@
+{
+  "v": 2,
+  "type": "INPUT",
+  "seq": 1,
+  "requestId": null,
+  "matchId": "m-ext-001",
+  "body": {
+    "inputSeq": 21,
+    "moveX": 1.0,
+    "moveY": 0.0,
+    "aimRad": 3.141592653589793,
+    "interactHeld": false,
+    "dropId": null
+  }
+}

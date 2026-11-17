@@ -1,0 +1,15 @@
+{
+  "v": 2,
+  "type": "PUBLIC_EVENT",
+  "seq": 1,
+  "requestId": null,
+  "matchId": "m-ext-001",
+  "body": {
+    "eventId": "T1",
+    "type": "PORTAL_STARTED",
+    "matchId": "m-ext-001",
+    "tick": 400,
+    "portalId": "P1",
+    "transitId": "T1"
+  }
+}
