@@ -1,2 +1,8 @@
 plugins { id 'java-library' }
-dependencies { api project(':contracts'); testImplementation project(':game-data') }
+dependencies {
+    api project(':contracts')
+    testImplementation project(':game-data')
+    // Test-only: prove A's v2 views/results survive B's strict codec without making
+    // game-core's production code depend on the network module.
+    testImplementation project(':client-network')
+}
